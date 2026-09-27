@@ -371,10 +371,8 @@ function buildStyle() {
   L.push({ id: 'sel-stn-label', type: 'symbol', source: 'rail', 'source-layer': 'stn', filter: selF,
     layout: { 'text-field': nameField(), 'text-font': ['NotoSansMedium'], 'text-size': ['interpolate', ['linear'], ['zoom'], 6, 11, 16, 14], 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 0.9, 'text-justify': 'auto', 'text-max-width': 10, 'text-line-height': 1.15, 'symbol-sort-key': ['-', 0, rk] },
     paint: { 'text-color': P.label, 'text-halo-color': P.halo, 'text-halo-width': 1.8 } });
-  // the selected station: a ring, and its name under it (the operators' logos go above it)
+  // the selected station: its name under it (the operators' logos go above it)
   const one = ['==', ['get', 'i'], selStation ?? -1];
-  L.push({ id: 'sel-one', type: 'circle', source: 'rail', 'source-layer': 'stn', filter: one,
-    paint: { 'circle-color': 'rgba(0,0,0,0)', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 12, 14, 17, 18], 'circle-stroke-color': P.sel, 'circle-stroke-width': 3 } });
   L.push({ id: 'sel-one-label', type: 'symbol', source: 'rail', 'source-layer': 'stn', filter: one,
     layout: { 'text-field': nameField(), 'text-font': ['NotoSansMedium'], 'text-size': ['interpolate', ['linear'], ['zoom'], 6, 13, 16, 15], 'text-anchor': 'top', 'text-offset': [0, 1.3],
       'text-max-width': 12, 'text-line-height': 1.15, 'text-allow-overlap': true },
@@ -656,6 +654,9 @@ function termini(id) {
   if (D.lines[id][8]) return 'Loop line';
   return a && b ? `${stnName(a)} – ${stnName(b)}` : '';
 }
+// station glyph for panels: a small train on the station's colour (no hollow rings)
+const stnBg = k => 'hrs'.includes(k) ? ring(k) : '#6E6E73';
+const TRAIN = '<svg viewBox="0 0 10 10" fill="currentColor"><rect x="2.3" y="0.8" width="5.4" height="6.4" rx="1.4"/><rect x="3.1" y="1.8" width="3.8" height="2" fill="#0004"/><path d="M3 7.6 2 9.4M7 7.6 8 9.4" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>';
 function stnName(s) { return s ? s[1] || s[0] : ''; }
 // station complexes: a railway station and the metro stations built into it (station[7] = main station id)
 function complexOf(si) {
@@ -914,7 +915,7 @@ function renderStation(si, push = true) {
   // the other names inside the complex (St Pancras in King's Cross, Lo Wu in Luohu)
   const names = [...new Set(S.map(m => stnName(D.stations[m])))].filter(n => n && n !== stnName(s));
   const also = names.length ? `<div class="meta">Includes ${esc(names.slice(0, 4).join(', '))}${names.length > 4 ? ` and ${names.length - 4} more` : ''}</div>` : '';
-  let h = (view.stack.length ? BACK : '') + `<div class="dhead"><span class="ico stn" style="border-color:${ring(s[4])}"></span><div><h2>${esc(stnName(s))}</h2>${alt(s[0], stnName(s)) ? `<div class="nat">${esc(s[0])}</div>` : ''}<div class="meta">${esc(meta)}</div>${also}<div class="ops">${operatorsHTML(lines)}</div></div>${CLOSE}</div>`;
+  let h = (view.stack.length ? BACK : '') + `<div class="dhead"><span class="ico stn" style="background:${stnBg(s[4])}">${TRAIN}</span><div><h2>${esc(stnName(s))}</h2>${alt(s[0], stnName(s)) ? `<div class="nat">${esc(s[0])}</div>` : ''}<div class="meta">${esc(meta)}</div>${also}<div class="ops">${operatorsHTML(lines)}</div></div>${CLOSE}</div>`;
   const rail = lines.filter(i => 'hr'.includes(D.lines[i][0])), urban = lines.filter(i => !'hr'.includes(D.lines[i][0]));
   if (rail.length) h += `<div class="sec">Rail${rail.length > 12 ? ' · ' + rail.length : ''}</div>` + byOperator(rail);
   // urban lines by city: suburban trains, then metro, light rail and trams
@@ -931,7 +932,7 @@ function renderStation(si, push = true) {
     h += `<div class="sec">Connections nearby</div>`;
     for (const t of near) {
       const o = D.stations[t]; const n = o[5].filter(i => D.lines[i]).length;
-      h += `<button class="row" data-stn="${t}"><span class="ico stn" style="border-color:${ring(o[4])}"></span><span class="t"><b>${esc(stnName(o))}</b><span>${esc(STN_KIND[o[4]] || '')}${n ? ' · ' + plural(n, 'line') : ''}</span></span></button>`;
+      h += `<button class="row" data-stn="${t}"><span class="ico stn" style="background:${stnBg(o[4])}">${TRAIN}</span><span class="t"><b>${esc(stnName(o))}</b><span>${esc(STN_KIND[o[4]] || '')}${n ? ' · ' + plural(n, 'line') : ''}</span></span></button>`;
     }
   }
   if (push) pushView(['stn', rep]);
@@ -1106,7 +1107,7 @@ function resultRow(e, dup) {
   const ls = s ? sortLines(allLinesAt(e.i)) : [];
   const city = ls.map(x => D.lines[x][5]).find(ci => ci >= 0);
   const sub = [alt(r[2], name), city != null ? cityName(city) : STN_KIND[k], countryName(r[5])].filter(Boolean).join(' · ');
-  return `<button class="row" data-stn="${e.i}"><span class="ico stn" style="border-color:${ring(k)}"></span><span class="t"><b>${esc(name)}</b><span>${esc(sub)}</span></span><span class="tx" style="display:flex;gap:3px">${ls.slice(0, 4).map(x => badgeHTML(x, 'sm')).join('')}</span></button>`;
+  return `<button class="row" data-stn="${e.i}"><span class="ico stn" style="background:${stnBg(k)}">${TRAIN}</span><span class="t"><b>${esc(name)}</b><span>${esc(sub)}</span></span><span class="tx" style="display:flex;gap:3px">${ls.slice(0, 4).map(x => badgeHTML(x, 'sm')).join('')}</span></button>`;
 }
 async function renderResults(q) {
   const t = ++nav;

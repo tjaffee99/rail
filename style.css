@@ -78,7 +78,7 @@ details.fold[open]{background:var(--hover)}
 .ico{width:22px;height:22px;border-radius:6px;flex:none;display:grid;place-items:center}
 .ico svg{width:14px;height:14px}
 .ico.city{background:var(--chip);color:var(--ink2)}
-.ico.stn{background:var(--panel-solid);border:2px solid var(--ink);box-sizing:border-box;border-radius:11px;width:18px;height:18px;margin:2px}
+.ico.stn{color:#fff;border-radius:6px}
 .ico.flag{width:28px;height:28px;font-size:21px;line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
 .ico.flag.big{width:40px;height:40px;font-size:32px}
 .legend{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;padding:4px 16px 8px;font-size:12.5px;color:var(--ink2)}
@@ -94,7 +94,7 @@ details.fold[open]{background:var(--hover)}
 .back svg{width:9px;height:14px}
 .dhead{display:flex;gap:12px;align-items:flex-start;padding:10px 16px 6px}
 .dhead .badge{min-width:34px;height:34px;font-size:16px;border-radius:9px}
-.dhead .ico.stn{width:30px;height:30px;border-width:3px;border-radius:15px;margin:2px}
+.dhead .ico.stn{width:30px;height:30px;border-radius:8px}.dhead .ico.stn svg{width:18px;height:18px}
 .dhead h2{margin:0;font-size:19px;line-height:1.2;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
 .dhead .nat{font-size:14px;color:var(--ink2);margin-top:2px}
 .dhead .meta{font-size:12.5px;color:var(--ink2);margin-top:4px}
