@@ -1,0 +1,226 @@
+{
+ "cr": {
+  "name": "China Railway",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/China_Railways.svg/120px-China_Railways.svg.png"
+ },
+ "Beijing": {
+  "name": "Beijing Subway",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Beijing_Subway_simplified_logo.svg/120px-Beijing_Subway_simplified_logo.svg.png"
+ },
+ "Shanghai": {
+  "name": "Shanghai Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/31/Shanghai_Metro_logo.svg/120px-Shanghai_Metro_logo.svg.png"
+ },
+ "Guangzhou": {
+  "name": "Guangzhou Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cc/Guangzhou_Metro_icon.svg/120px-Guangzhou_Metro_icon.svg.png"
+ },
+ "Shenzhen": {
+  "name": "Shenzhen Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/7/70/Shenzhen_Metro_logo.svg/120px-Shenzhen_Metro_logo.svg.png"
+ },
+ "Hong Kong": {
+  "name": "MTR",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/b/b9/HK_MTR_logo.svg/120px-HK_MTR_logo.svg.png"
+ },
+ "Chengdu": {
+  "name": "Chengdu Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7f/Chengdu_Metro_icon.svg/120px-Chengdu_Metro_icon.svg.png"
+ },
+ "Nanjing": {
+  "name": "Nanjing Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Nanjing_Metro_Logo.svg/120px-Nanjing_Metro_Logo.svg.png"
+ },
+ "Hangzhou": {
+  "name": "Hangzhou Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/7/70/Hangzhou_Metro_logo.svg/120px-Hangzhou_Metro_logo.svg.png"
+ },
+ "Xi'an": {
+  "name": "Xi\u2019an Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/f/f7/Xian_Metro_logo.svg/120px-Xian_Metro_logo.svg.png"
+ },
+ "Tianjin": {
+  "name": "Tianjin Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Tianjin_Metro_Logo.svg/120px-Tianjin_Metro_Logo.svg.png"
+ },
+ "Zhengzhou": {
+  "name": "Zhengzhou Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/d/d8/Zhengzhou_Metro_logo.svg/120px-Zhengzhou_Metro_logo.svg.png"
+ },
+ "Suzhou": {
+  "name": "Suzhou Rail Transit",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/4/41/Suzhou_Rail_Transit_logo.svg/120px-Suzhou_Rail_Transit_logo.svg.png"
+ },
+ "Changsha": {
+  "name": "Changsha Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/e/eb/Changsha_Metro_logo.svg/120px-Changsha_Metro_logo.svg.png"
+ },
+ "Kunming": {
+  "name": "Kunming Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/1/1d/Kunming_Rail_Transit_logo.svg/120px-Kunming_Rail_Transit_logo.svg.png"
+ },
+ "Qingdao": {
+  "name": "Qingdao Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/0/0b/Qingdao_Metro.svg/120px-Qingdao_Metro.svg.png"
+ },
+ "Ningbo": {
+  "name": "Ningbo Rail Transit",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/5/56/Ningbo_Rail_Transit_logo.svg/120px-Ningbo_Rail_Transit_logo.svg.png"
+ },
+ "Dalian": {
+  "name": "Dalian Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/4/4a/Dalian_Metro_Logo_Image_Only.svg/120px-Dalian_Metro_Logo_Image_Only.svg.png"
+ },
+ "Harbin": {
+  "name": "Harbin Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/3/37/Harbin_Metro_logo.svg/120px-Harbin_Metro_logo.svg.png"
+ },
+ "Fuzhou": {
+  "name": "Fuzhou Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/b/be/Fuzhou_Metro_logo.svg/120px-Fuzhou_Metro_logo.svg.png"
+ },
+ "Xiamen": {
+  "name": "Xiamen Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Amoy_Metro_logo.svg/120px-Amoy_Metro_logo.svg.png"
+ },
+ "Wuxi": {
+  "name": "Wuxi Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/0/0f/Wuxi_Metro_logo.svg/120px-Wuxi_Metro_logo.svg.png"
+ },
+ "Jinan": {
+  "name": "Jinan Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/JinanMetro_Logo.svg/120px-JinanMetro_Logo.svg.png"
+ },
+ "Shijiazhuang": {
+  "name": "Shijiazhuang Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Shijiazhuang_Metro.svg/120px-Shijiazhuang_Metro.svg.png"
+ },
+ "Taiyuan": {
+  "name": "Taiyuan Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/4/4e/Taiyuan_Metro_logo.svg/120px-Taiyuan_Metro_logo.svg.png"
+ },
+ "Macau": {
+  "name": "Macau LRT",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Metro_Ligeiro_de_Macau_logo.svg/120px-Metro_Ligeiro_de_Macau_logo.svg.png"
+ },
+ "Dongguan": {
+  "name": "Dongguan Rail Transit",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/e/e5/Dongguan_Rail_Transit_logo.svg/120px-Dongguan_Rail_Transit_logo.svg.png"
+ },
+ "hktram": {
+  "name": "Hong Kong Tramways",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Hong_Kong_Tramways_Logo_Without_Text.svg/120px-Hong_Kong_Tramways_Logo_Without_Text.svg.png"
+ },
+ "prdir": {
+  "name": "Guangdong Intercity",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/PRDIR_logo_without_text.svg/120px-PRDIR_logo_without_text.svg.png"
+ },
+ "Foshan": {
+  "name": "Foshan Metro",
+  "url": "https://upload.wikimedia.org/wikipedia/en/thumb/8/89/FMetro.svg/120px-FMetro.svg.png"
+ },
+ "Wuhan": {
+  "name": "Wuhan Metro",
+  "wiki": "Wuhan Metro"
+ },
+ "Chongqing": {
+  "name": "Chongqing Rail Transit",
+  "wiki": "Chongqing Rail Transit"
+ },
+ "Hefei": {
+  "name": "Hefei Metro",
+  "wiki": "Hefei Metro"
+ },
+ "Shenyang": {
+  "name": "Shenyang Metro",
+  "wiki": "Shenyang Metro"
+ },
+ "Changchun": {
+  "name": "Changchun Rail Transit",
+  "wiki": "Changchun Rail Transit"
+ },
+ "Nanchang": {
+  "name": "Nanchang Metro",
+  "wiki": "Nanchang Metro"
+ },
+ "Nanning": {
+  "name": "Nanning Metro",
+  "wiki": "Nanning Metro"
+ },
+ "Guiyang": {
+  "name": "Guiyang Metro",
+  "wiki": "Guiyang Metro"
+ },
+ "\u00dcr\u00fcmqi": {
+  "name": "\u00dcr\u00fcmqi Metro",
+  "wiki": "\u00dcr\u00fcmqi Metro"
+ },
+ "Hohhot": {
+  "name": "Hohhot Metro",
+  "wiki": "Hohhot Metro"
+ },
+ "Xuzhou": {
+  "name": "Xuzhou Metro",
+  "wiki": "Xuzhou Metro"
+ },
+ "Changzhou": {
+  "name": "Changzhou Metro",
+  "wiki": "Changzhou Metro"
+ },
+ "Luoyang": {
+  "name": "Luoyang Metro",
+  "wiki": "Luoyang Metro"
+ },
+ "Wuhu": {
+  "name": "Wuhu Rail Transit",
+  "wiki": "Wuhu Rail Transit"
+ },
+ "Shaoxing": {
+  "name": "Shaoxing Metro",
+  "wiki": "Shaoxing Metro"
+ },
+ "Nantong": {
+  "name": "Nantong Metro",
+  "wiki": "Nantong Metro"
+ },
+ "Wenzhou": {
+  "name": "Wenzhou Rail Transit",
+  "wiki": "Wenzhou Rail Transit"
+ },
+ "Jinhua": {
+  "name": "Jinhua Rail Transit",
+  "wiki": "Jinhua Rail Transit"
+ },
+ "Taizhou": {
+  "name": "Taizhou Rail Transit",
+  "wiki": "Taizhou Rail Transit"
+ },
+ "Lanzhou": {
+  "name": "Lanzhou Metro",
+  "wiki": "Lanzhou Metro"
+ },
+ "Liuzhou": {
+  "name": "Liuzhou Rail Transit",
+  "wiki": "Liuzhou Rail Transit"
+ },
+ "Sanya": {
+  "name": "Sanya Tram",
+  "wiki": "Sanya Tram"
+ },
+ "Tianshui": {
+  "name": "Tianshui Tram",
+  "wiki": "Tianshui Tram"
+ },
+ "Huangshi": {
+  "name": "Huangshi Modern Tram",
+  "wiki": "Huangshi Modern Tram"
+ },
+ "Jiaxing": {
+  "name": "Jiaxing Tram",
+  "wiki": "Jiaxing Tram"
+ },
+ "Mengzi": {
+  "name": "Honghe Tram",
+  "wiki": "Honghe Tram"
+ }
+}

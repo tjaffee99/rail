@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rail Atlas</title>
+<meta name="description" content="An interactive map of every passenger rail line in the world: high-speed and conventional railways, metro, suburban rail, light rail and trams, with every line and station searchable in English and local languages.">
+<meta name="theme-color" content="#F2F0EB" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1F2124" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="Rail Atlas">
+<meta property="og:description" content="Interactive map of every passenger rail line in the world, from high-speed rail to metro and trams.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://rail.theojaffee.net/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="map" aria-label="Rail map of the world"></div>
+  <aside id="panel" aria-label="Rail lines and stations">
+    <button class="grip" id="grip" aria-label="Expand or collapse panel"></button>
+    <div class="phead" id="phead">
+      <div class="search">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
+        <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Search lines, stations, places" aria-label="Search lines, stations, cities and countries">
+        <button id="qclear" aria-label="Clear search">✕</button>
+      </div>
+      <div class="chips" id="chips" role="group" aria-label="Show on map"></div>
+    </div>
+    <div id="body"></div>
+  </aside>
+  <div class="ctl">
+    <div class="grp">
+      <button id="zin" aria-label="Zoom in"><svg viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+      <button id="zout" aria-label="Zoom out"><svg viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 8h10"/></svg></button>
+    </div>
+    <div class="grp">
+      <button id="compass" aria-label="Reset bearing to north"><svg viewBox="0 0 16 16"><path d="M8 1.5l3 6.5H5z" fill="#E5483B"/><path d="M8 14.5l-3-6.5h6z" fill="currentColor" opacity=".45"/></svg></button>
+      <button id="home" aria-label="Show the whole world"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2 5.5l4-2 4 2 4-2v9l-4 2-4-2-4 2z"/><path d="M6 3.5v9M10 5.5v9"/></svg></button>
+    </div>
+  </div>
+  <div class="attr"><a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors<span class="wide" id="date"></span></div>
+  <div id="loading"><div><span>Loading Rail Atlas…</span><span class="bar"><i></i></span></div></div>
+</div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
