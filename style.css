@@ -57,18 +57,19 @@ body{margin:0;background:var(--land);color:var(--ink);font:14px/1.35 -apple-syst
 .row .t b{display:block;font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .t span{display:block;font-size:12.5px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .n{font-size:12.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
-.badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 5px;box-sizing:border-box;border-radius:6px;font-size:12.5px;font-weight:700;letter-spacing:-.01em;flex:none;color:#fff}
+.badge{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 5px;box-sizing:border-box;border-radius:6px;font-size:12.5px;font-weight:700;letter-spacing:-.01em;flex:none;color:#fff}
 .badge.round{border-radius:11px}
 .badge.sm{min-width:18px;height:18px;font-size:10.5px;border-radius:5px;padding:0 4px}
 .badge.rl{background:#8657D8;color:#fff}
 .badge.hsr{background:#2E63D6;color:#fff}
 .badge i{font-style:normal}
-.badge img{display:none}
-/* an intercity line's operator logo in place of the HSR / RL pill */
-.badge.clogo{background:#fff!important;box-shadow:0 0 0 1px var(--panel-edge);width:34px;padding:0 2px}
+/* an intercity line's operator logo in place of the HSR / RL pill, which keeps its size (the logo loads unseen) */
+.badge.cnone img{position:absolute;left:0;top:0;width:1px;height:1px;opacity:0}
+.badge.hsr:not(.sm),.badge.rl:not(.sm){width:38px}
+.badge.clogo{background:#fff!important;box-shadow:0 0 0 1px var(--panel-edge);padding:0 2px}
 .badge.clogo i{display:none}
-.badge.clogo img{display:block;height:15px;width:auto;max-width:30px;object-fit:contain}
-.dhead .badge.clogo{width:52px}
+.badge.clogo img{display:block;height:15px;width:auto;max-width:34px;object-fit:contain}
+.dhead .badge.hsr,.dhead .badge.rl{width:52px}
 .dhead .badge.clogo img{height:24px;max-width:46px}
 details.fold>summary{list-style:none}
 details.fold>summary::-webkit-details-marker{display:none}
@@ -167,7 +168,7 @@ details.fold[open]{background:var(--hover)}
 .logo.pop+.logo.pop{border-left:1px solid #e5e5ea;border-radius:0}
 .badge.lgw{background:#fff!important;box-shadow:0 0 0 1px var(--panel-edge);padding:0 2px}
 .badge.lgw svg{display:none}
-.badge.lgw img{height:14px;width:auto;display:block}
+.badge.lgw img{height:14px;width:30px;object-fit:contain;display:block}
 .ico.cnone{width:28px;height:28px}
 .ico.cnone img{visibility:hidden;width:22px;height:22px}
 .ico.cnone.big{display:none}
@@ -177,4 +178,5 @@ details.fold[open]{background:var(--hover)}
 .ico.clogo.big img{width:32px;height:32px}
 .ops{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px}
 .op{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink2)}
-.op img{height:18px;width:auto;max-width:40px;object-fit:contain;border-radius:3px}
+.op img{height:18px;width:36px;object-fit:contain;border-radius:3px}
+img[data-lg]:not([src]){visibility:hidden}

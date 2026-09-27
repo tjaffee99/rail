@@ -17,7 +17,7 @@ import jieba, pykakasi, pypinyin
 from anyascii import anyascii
 jieba.setLogLevel(60)
 
-LATIN = re.compile(r"^[\x00-ɏḀ-ỿ -⁯℀-⅏ʰ-˿̀-ͯ]*$")
+LATIN = re.compile(r"^[\x00-\u036f\u1e00-\u1eff\u2000-\u206f\u2100-\u214f\u2c60-\u2c7f\ua720-\ua7ff]*$")      # with IPA letters (Azerbaijani ə, ɛ ɔ ŋ of African languages)
 KANA, HAN, HANGUL = re.compile(r'[぀-ヿ]'), re.compile(r'[㐀-䶿一-鿿]'), re.compile(r'[가-힯ᄀ-ᇿ]')
 CYR, GREEK = re.compile(r'[Ѐ-ӿ]'), re.compile(r'[Ͱ-Ͽἀ-῿]')
 ABJAD = re.compile(r'[֐-׿؀-ۿ܀-ࣿיִ-﷿ﹰ-﻿]')      # Hebrew, Arabic, Syriac, Thaana

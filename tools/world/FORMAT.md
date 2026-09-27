@@ -13,7 +13,9 @@ planet-latest.osm.pbf (streamed twice, never stored)
   pass 2  osmium getid                   those nodes, with locations                                       -> planet2.pbf
           osmium merge planet1 planet2                                                                    -> merged.pbf
 tools/world/extract_world.py merged.pbf build/world/raw.pickle
-tools/world/build_world.py   build/world/raw.pickle build/world         -> build/world/network.json, build/world/geometry.pickle
+tools/world/build_world.py   build/world/raw.pickle build/world         -> build/world/network.json, build/world/geometry.pickle,
+                                                                            build/world/sources.json (OSM relations per line)
+tools/world/wikidata.py wikilogos build/world/network.json              -> Wikipedia infobox logos of the logo keys (cache)
 China:  tools/build_network.py + tools/curate.py                         -> build/china/network.json, build/china/geometry.pickle
 tools/world/assemble.py --world build/world/network.json build/world/geometry.pickle
                                                                          -> data/index.json, data/net/*.json, data/search.json,
@@ -70,7 +72,10 @@ country (data/index.json only): `0 ISO code, 1 English name, 2 native name, 3 in
   most of its stations are in; its stations, and lines at its stations, may be in other shards.
 - `data/search.json` (on first search): `{l: [[lineId, en, native, ref, cityId, kind, countryId]], s: [[stationId, en ('' if same as native), native, kind, nLines, countryId]]}`.
 - `data/manifest.json` + `data/tiles/*.bin`: vector tiles (below).
-- `data/logos.json`: `{key: {name, url}}` hand-checked logos (China); other logos come from Wikidata at runtime.
+- `data/logos.json`: `{key: {name, url}}` hand-checked logos (China), plus an entry for every `"wd:Q…"` key the lines and
+  cities use, resolved at build time by assemble.py from the `tools/world/wikidata.py` caches (the item's Commons logo, its
+  parent company's, or its English Wikipedia infobox logo); `{name, wiki}` when only the article is known. The world
+  builder gives a line a `wd:` key only when one of these exists, so the site makes no Wikidata calls for them.
 
 ## Tiles
 

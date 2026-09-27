@@ -182,7 +182,8 @@ function modeFilter(ks) { return ['in', ['get', 'k'], ['literal', ks]]; }
 // line kinds currently switched on (Tram covers funiculars)
 const shownKinds = () => MODES.flatMap(m => vis[m.k] ? [...m.kinds] : []);
 // a station node is shown when a switched-on mode serves it (ks); a complex label when any mode serves the complex (kc)
-const servedBy = (prop, ks) => ks.length ? ['any', ...ks.map(k => ['in', k, ['coalesce', ['get', prop], '']])] : ['==', 1, 0];
+// (false, not ['==', 1, 0], which MapLibre would read as a legacy filter and so the whole filter)
+const servedBy = (prop, ks) => ks.length ? ['any', ...ks.map(k => ['in', k, ['coalesce', ['get', prop], '']])] : false;
 function buildStyle() {
   const selKey = sel == null ? '|none|' : '|' + sel + '|';
   const dim = sel == null ? 1 : P.dimOp;
@@ -232,19 +233,28 @@ function buildStyle() {
     layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: { 'line-color': ['step', ['zoom'], P.roadLow, 11, ['match', ['get', 'class'], ['minor', 'service'], P.road2, ['motorway', 'trunk'], P.motor, P.road]],
       'line-width': roadW([[5, 0.5, 0.4, 0.3, 0.2, 0.2, 0.2, 0.1], [8, 1, 0.9, 0.7, 0.5, 0.4, 0.3, 0.2], [11, 1.6, 1.4, 1.2, 1, 0.8, 0.5, 0.3], [14, 5, 4.6, 4.2, 3.6, 3, 2.4, 1.2], [18, 22, 20, 18, 16, 14, 12, 6]]) } });
-  // intercity rail
-  const on = k => vis[k] ? 'visible' : 'none';
-  L.push({ id: 'rail-r-case', type: 'line', source: 'rail', 'source-layer': 'rail', minzoom: 8, filter: ['==', ['get', 'k'], 'r'], layout: { visibility: on('r'), 'line-join': 'round' },
+  // intercity rail, casings first (a line beside another is not cut by its casing). Track that high-speed and other
+  // trains share is a pair of features (pair 1, same geometry): with both kinds shown they run side by side under one
+  // casing, high-speed on the right of the pair's direction
+  const on = k => vis[k] ? 'visible' : 'none', both = vis.h && vis.r, pair = ['==', ['get', 'pair'], 1];
+  const HW = [[3, 0.9], [5, 1.35], [7, 1.9], [9, 2.6], [12, 3.6], [15, 5.2], [18, 7.5]], RW = [[3, 0.55], [5, 0.85], [7, 1.25], [9, 1.8], [12, 2.8], [15, 4.4], [18, 6.2]];
+  const alone = k => both ? ['all', ['==', ['get', 'k'], k], ['!', pair]] : ['==', ['get', 'k'], k];
+  const half = (ws, s) => both ? W(ws.map(([z, w]) => [z, ['case', pair, s * w / 2, 0]])) : 0;
+  L.push({ id: 'rail-r-case', type: 'line', source: 'rail', 'source-layer': 'rail', minzoom: 8, filter: alone('r'), layout: { visibility: on('r'), 'line-join': 'round' },
     paint: { 'line-color': P.casing, 'line-opacity': dim, 'line-width': W([[8, 3], [12, 5], [15, 7.4], [18, 10]]) } });
-  L.push({ id: 'rail-r', type: 'line', source: 'rail', 'source-layer': 'rail', filter: ['==', ['get', 'k'], 'r'], layout: { visibility: on('r'), 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': P.rail, 'line-opacity': dim, 'line-width': W([[3, 0.55], [5, 0.85], [7, 1.25], [9, 1.8], [12, 2.8], [15, 4.4], [18, 6.2]]) } });
-  L.push({ id: 'rail-h-case', type: 'line', source: 'rail', 'source-layer': 'rail', minzoom: 6, filter: ['==', ['get', 'k'], 'h'], layout: { visibility: on('h'), 'line-join': 'round' },
+  L.push({ id: 'rail-p-case', type: 'line', source: 'rail', 'source-layer': 'rail', minzoom: 6, filter: ['all', pair, ['==', ['get', 'k'], 'h']], layout: { visibility: both ? 'visible' : 'none', 'line-join': 'round' },
+    paint: { 'line-color': P.casing, 'line-opacity': dim, 'line-width': W(HW.map(([z, w], i) => [z, w + RW[i][1] + [1.2, 1.4, 1.6, 2, 2.6, 3.2, 4][i]])),
+      'line-offset': W(HW.map(([z, w], i) => [z, (w - RW[i][1]) / 2])) } });
+  L.push({ id: 'rail-h-case', type: 'line', source: 'rail', 'source-layer': 'rail', minzoom: 6, filter: alone('h'), layout: { visibility: on('h'), 'line-join': 'round' },
     paint: { 'line-color': P.casing, 'line-opacity': dim, 'line-width': W([[6, 3], [9, 4.6], [12, 6.2], [15, 8.4], [18, 11.5]]) } });
+  L.push({ id: 'rail-r', type: 'line', source: 'rail', 'source-layer': 'rail', filter: ['==', ['get', 'k'], 'r'], layout: { visibility: on('r'), 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': P.rail, 'line-opacity': dim, 'line-width': W(RW), 'line-offset': half(RW, -1) } });
   L.push({ id: 'rail-h', type: 'line', source: 'rail', 'source-layer': 'rail', filter: ['==', ['get', 'k'], 'h'], layout: { visibility: on('h'), 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': P.hsr, 'line-opacity': dim, 'line-width': W([[3, 0.9], [5, 1.35], [7, 1.9], [9, 2.6], [12, 3.6], [15, 5.2], [18, 7.5]]) } });
+    paint: { 'line-color': P.hsr, 'line-opacity': dim, 'line-width': W(HW), 'line-offset': half(HW, 1) } });
   // urban rail
   const ucase = { type: 'line', source: 'rail', 'source-layer': 'rail', minzoom: 10, layout: { 'line-join': 'round', 'line-cap': 'round' } };
-  L.push(Object.assign({ id: 'u-case', filter: ['in', ['get', 'k'], ['literal', ['m', 'l', 's', 't']]], paint: { 'line-color': P.casing, 'line-opacity': sel == null ? 0.95 : 0.3, 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, ['match', ['get', 'k'], 't', 2.8, 'l', 3.6, 4.4], 14, ['match', ['get', 'k'], 't', 5.5, 'l', 7.5, 9], 17, ['match', ['get', 'k'], 't', 9, 'l', 12, 14]] } }, ucase));
+  // (only for the kinds shown: a hidden suburban line's casing would hide the intercity line on its track)
+  L.push(Object.assign({ id: 'u-case', filter: ['in', ['get', 'k'], ['literal', ['m', 'l', 's', 't'].filter(k => shownKinds().includes(k))]], paint: { 'line-color': P.casing, 'line-opacity': sel == null ? 0.95 : 0.3, 'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 10, ['match', ['get', 'k'], 't', 2.8, 'l', 3.6, 4.4], 14, ['match', ['get', 'k'], 't', 5.5, 'l', 7.5, 9], 17, ['match', ['get', 'k'], 't', 9, 'l', 12, 14]] } }, ucase));
   const uline = (id, k, w, extra = {}) => ({ id, type: 'line', source: 'rail', 'source-layer': 'rail', filter: ['==', ['get', 'k'], k], layout: Object.assign({ visibility: on(id === 'u-f' ? 't' : k), 'line-join': 'round', 'line-cap': 'round' }, extra.layout || {}), paint: Object.assign({ 'line-color': ['coalesce', ['get', 'c'], P.rail], 'line-opacity': dim, 'line-width': W(w) }, extra.paint || {}) });
   L.push(uline('u-t', 't', [[9, 0.8], [12, 1.8], [14, 3], [17, 6]]));
   L.push(uline('u-f', 'f', [[11, 1], [14, 2], [17, 4]], { paint: { 'line-dasharray': [1, 1] } }));
@@ -311,7 +321,9 @@ function buildStyle() {
 
   // ---- rail labels, placed before all of the above: line names, route badges, then the stations (below)
   const railKinds = ['h', 'r'].filter(k => vis[k]);
-  L.push({ id: 'rail-name', type: 'symbol', source: 'rail', 'source-layer': 'rail', minzoom: 6, maxzoom: 12, filter: ['all', ['has', 'nm'], ['in', ['get', 'k'], ['literal', railKinds]]],
+  // (a pair is named once: after its high-speed line while that is shown)
+  L.push({ id: 'rail-name', type: 'symbol', source: 'rail', 'source-layer': 'rail', minzoom: 6, maxzoom: 12,
+    filter: ['all', ['has', 'nm'], ['in', ['get', 'k'], ['literal', railKinds]], ['!', ['all', pair, ['==', ['get', 'k'], 'r'], vis.h]]],
     layout: { visibility: sel == null ? 'visible' : 'none', 'symbol-placement': 'line', 'symbol-spacing': 520, 'text-field': labelMode === 'local' ? ['get', 'nz'] : ['get', 'nm'],
       'text-font': ['NotoSansMedium'], 'text-size': ['interpolate', ['linear'], ['zoom'], 6, 10.5, 11, 12.5], 'text-max-angle': 28, 'text-letter-spacing': 0.02, 'text-padding': 6,
       'symbol-sort-key': ['match', ['get', 'k'], 'h', 0, 1] },
@@ -324,11 +336,14 @@ function buildStyle() {
   // (by rank), town and city names below z12, metro dots (always drawn; later labels avoid them), metro labels. One
   // label per station complex, on its main station (rep). Rail stations: white dots ringed in the line colour, hubs
   // ringed dark, from z11 a train glyph (China Railway's logo in China); suburban stations ringed in their line's colour.
-  const sk = shownKinds(), rk = ['get', 'rk'], rep1 = ['==', ['get', 'rep'], 1], only = ['all', rep1, ['!=', ['get', 'i'], selStation ?? -1]];
+  // The selected station keeps its own marker, a size up (a rail station its train glyph at every zoom), and its name
+  // goes under it in bold.
+  const one = ['==', ['get', 'i'], selStation ?? -1], grow = v => ['*', v, ['case', one, 1.3, 1]];
+  const sk = shownKinds(), rk = ['get', 'rk'], rep1 = ['==', ['get', 'rep'], 1], only = ['all', rep1, ['!', one]];
   const railOn = vis.h || vis.r || vis.s;
   const hub = ['any', ['>=', rk, 10], ['>', ['get', 'x'], 2]];
   const glyph = ['match', ['get', 'k'], 'h', 'st-h', 's', 'st-s', 'st-r'];
-  const uk = ['all', ['!', ['in', ['get', 'k'], ['literal', ['h', 'r', 's']]]], servedBy('ks', sk), ['!=', ['get', 'i'], selStation ?? -1]];
+  const ud = ['all', ['!', ['in', ['get', 'k'], ['literal', ['h', 'r', 's']]]], servedBy('ks', sk)], uk = ['all', ud, ['!', one]];
   // if rail is switched off, metro stations inside rail hubs label themselves
   const labelled = railOn ? rep1 : ['any', rep1, ...['h', 'r', 's'].map(k => ['in', k, ['coalesce', ['get', 'kc'], '']])];
   const uLabel = (id, minzoom, extra) => ({ id, type: 'symbol', source: 'rail', 'source-layer': 'stn', minzoom, filter: ['all', uk, labelled, extra],
@@ -339,9 +354,9 @@ function buildStyle() {
   L.push(uLabel('stn-u1-label', 13.5, ['<=', ['get', 'x'], 1]));
   L.push(uLabel('stn-u-label', 12, ['>', ['get', 'x'], 1]));
   // metro station dots as icons (not circles) so that route badges and metro labels avoid them
-  const uDot = (id, minzoom, extra, transfer) => ({ id, type: 'symbol', source: 'rail', 'source-layer': 'stn', minzoom, filter: ['all', uk, extra],
+  const uDot = (id, minzoom, extra, transfer) => ({ id, type: 'symbol', source: 'rail', 'source-layer': 'stn', minzoom, filter: ['all', ud, extra],
     layout: { 'icon-image': transfer ? 'hubm|' + th : ['concat', 'sd|' + th + '|', ['coalesce', ['get', 'c'], '#888888']],
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 11, transfer ? 0.42 : 0.38, 14, transfer ? 0.85 : 0.78, 17, transfer ? 1.3 : 1.15],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 11, grow(transfer ? 0.42 : 0.38), 14, grow(transfer ? 0.85 : 0.78), 17, grow(transfer ? 1.3 : 1.15)],
       'icon-allow-overlap': true, 'icon-padding': 0, 'symbol-sort-key': ['-', 0, ['get', 'x']] },
     paint: { 'icon-opacity': sel == null ? 1 : 0.3 } });
   L.push(uDot('stn-u1', 12, ['<=', ['get', 'x'], 1], false));
@@ -351,9 +366,9 @@ function buildStyle() {
   // rail station names by rank: 11+ below z5, 10+ to z7, 8+ to z9, 5+ to z11, then all
   const railLabel = (min, f) => ['case', min == null ? only : ['all', only, ['>=', rk, min]], f, ''];
   L.push({ id: 'stn-rail', type: 'symbol', source: 'rail', 'source-layer': 'stn', filter: ['all', ['in', ['get', 'k'], ['literal', ['h', 'r', 's']]], servedBy('ks', sk)],
-    layout: { 'icon-image': ['step', ['zoom'], ['case', hub, 'hub', ['match', ['get', 'k'], 'h', 'dot-h', 'r', 'dot-r', ['concat', 'ds|', th, '|', ['coalesce', ['get', 'c'], '']]]],
+    layout: { 'icon-image': ['step', ['zoom'], ['case', one, glyph, hub, 'hub', ['match', ['get', 'k'], 'h', 'dot-h', 'r', 'dot-r', ['concat', 'ds|', th, '|', ['coalesce', ['get', 'c'], '']]]],
         11, logoReady.cr ? ['case', ['all', ['!=', ['get', 'k'], 's'], inChina()], 'lg|cr', glyph] : glyph],
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.6, 8, 0.85, 11, 0.8, 14, 1], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 4, grow(0.6), 8, grow(0.85), 11, grow(0.8), 14, grow(1)], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
       'symbol-sort-key': ['-', 0, rk],
       'text-field': sel != null ? '' : ['step', ['zoom'], railLabel(11, nameField()), 5, railLabel(10, nameField()), 7, railLabel(8, nameField()), 9, railLabel(5, nameField()),
         11, railLabel(null, nameField()), 14.5, railLabel(null, nameWithBullets())],
@@ -363,16 +378,16 @@ function buildStyle() {
       'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': ['step', ['zoom'], 0.7, 11, 1.05] },
     paint: { 'text-color': ['case', hub, P.label, P.label2], 'text-halo-color': P.halo, 'text-halo-width': 1.8,
       // one dot per complex below z10; below z7 only for the ranks that are labelled
-      'icon-opacity': sel != null ? 0.35 : ['step', ['zoom'], ['case', ['all', rep1, ['>=', rk, 10]], 1, 0], 7, ['case', ['all', rep1, ['>=', rk, 5]], 1, 0],
-        8, ['case', rep1, 1, 0], 10, 1] } });
-  // selected line stations (always labelled)
+      'icon-opacity': sel != null ? 0.35 : ['step', ['zoom'], ['case', ['any', one, ['all', rep1, ['>=', rk, 10]]], 1, 0], 7, ['case', ['any', one, ['all', rep1, ['>=', rk, 5]]], 1, 0],
+        8, ['case', ['any', one, rep1], 1, 0], 10, 1] } });
+  // selected line stations (always labelled): white dots, ringed in an urban line's own colour, else dark
+  const sl = sel != null && D.lines[sel], ringCol = sl && !'hr'.includes(sl[0]) && sl[4] ? sl[4] : P.stnStroke;
   L.push({ id: 'sel-stn', type: 'circle', source: 'rail', 'source-layer': 'stn', filter: selF,
-    paint: { 'circle-color': P.stnFill, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 2.5, 10, 4, 14, 6.5, 17, 8], 'circle-stroke-color': ['case', ['>', ['get', 'x'], 1], P.stnStroke, sel != null && D ? lineColor(sel) : P.stnStroke], 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5, 1.4, 12, 2.2, 17, 3] } });
+    paint: { 'circle-color': P.stnFill, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 2.5, 10, 4, 14, 6.5, 17, 8], 'circle-stroke-color': ['case', ['>', ['get', 'x'], 1], P.stnStroke, ringCol], 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5, 1.4, 12, 2.2, 17, 3] } });
   L.push({ id: 'sel-stn-label', type: 'symbol', source: 'rail', 'source-layer': 'stn', filter: selF,
     layout: { 'text-field': nameField(), 'text-font': ['NotoSansMedium'], 'text-size': ['interpolate', ['linear'], ['zoom'], 6, 11, 16, 14], 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 0.9, 'text-justify': 'auto', 'text-max-width': 10, 'text-line-height': 1.15, 'symbol-sort-key': ['-', 0, rk] },
     paint: { 'text-color': P.label, 'text-halo-color': P.halo, 'text-halo-width': 1.8 } });
   // the selected station: its name under it (the operators' logos go above it)
-  const one = ['==', ['get', 'i'], selStation ?? -1];
   L.push({ id: 'sel-one-label', type: 'symbol', source: 'rail', 'source-layer': 'stn', filter: one,
     layout: { 'text-field': nameField(), 'text-font': ['NotoSansMedium'], 'text-size': ['interpolate', ['linear'], ['zoom'], 6, 13, 16, 15], 'text-anchor': 'top', 'text-offset': [0, 1.3],
       'text-max-width': 12, 'text-line-height': 1.15, 'text-allow-overlap': true },
@@ -685,9 +700,10 @@ function sortLines(ids) {
 }
 
 // ---------------------------------------------------------------- operators and logos
-// A logo key (line[14], city[7]) is a key of data/logos.json - hand-checked logos for China, {name, url}, or
-// {name, wiki}: the logo in that English Wikipedia article's infobox - or "wd:Q…", a Wikidata item whose
-// logo image (P154) is shown. Looked-up logos are remembered in the browser for 30 days.
+// A logo key (line[14], city[7]) is a key of data/logos.json: {name, url}, {name, wiki} (the logo in that English
+// Wikipedia article's infobox) or {name} (no logo). The build writes an entry for every "wd:Q…" key (a Wikidata
+// item); one it hasn't is looked up at runtime (the item's logo image, P154). Looked-up logos are remembered in the
+// browser for 30 days.
 let LOGOS = {};
 const logoReady = {};
 const logoP = {};
@@ -697,7 +713,7 @@ const logoName = key => (LOGOS[key] && LOGOS[key].name) || '';
 // a logo's url, '' if there is none, undefined while it hasn't been looked up
 function logoUrl(key) {
   const lg = key && LOGOS[key];
-  if (lg && lg.url) return lg.url;
+  if (lg && (lg.url || !lg.wiki)) return lg.url || '';
   if (logoCache[key]) return logoCache[key][0];
   return key && (key.startsWith('wd:') || (lg && lg.wiki)) ? undefined : '';
 }
@@ -745,13 +761,14 @@ async function wikiLogo(title) {
   const pg = q.query && q.query.pages && q.query.pages[0], ii = pg && pg.imageinfo && pg.imageinfo[0];
   return ii ? (ii.thumburl || ii.url || '') : '';
 }
-// <img> of a logo; one still being looked up is filled in (or dropped) when the answer comes. Its holder shows the
-// logo (class clogo instead of cnone) once the image has loaded, and keeps its placeholder if it never does.
-function logoImg(key, attrs = 'alt=""') {
+// <img> of a logo, loaded as it scrolls into view; one still being looked up is filled in (or dropped) when the answer
+// comes. Its holder shows the logo (class clogo instead of cnone) once the image has loaded, and keeps its placeholder
+// (same size) if it never does.
+function logoImg(key, attrs = 'alt=""', lazy = true) {
   const u = logoUrl(key);
   if (u === '') return '';
   if (u === undefined) resolveLogo(key);
-  return `<img ${attrs} data-lg="${esc(key)}"${u ? ` src="${esc(u)}"` : ''} referrerpolicy="no-referrer" onload="this.parentNode.classList.replace('cnone','clogo')" onerror="this.remove()">`;
+  return `<img ${attrs} data-lg="${esc(key)}"${u ? ` src="${esc(u)}"` : ''}${lazy ? ' loading="lazy"' : ''} referrerpolicy="no-referrer" onload="this.parentNode.classList.replace('cnone','clogo')" onerror="this.remove()">`;
 }
 function fillLogos(key, url) {
   for (const im of document.querySelectorAll('img[data-lg]:not([src])')) {
@@ -792,7 +809,7 @@ function cityIcon(ci, big = false) {
   const key = D.cities[ci] && D.cities[ci][7], u = logoUrl(key);
   if (!u && u !== undefined) return big ? '' : '<span class="ico cnone" aria-hidden="true"></span>';
   const name = esc(logoName(key));
-  return `<span class="ico cnone${big ? ' big' : ''}">${logoImg(key, `alt="${name}" title="${name}"${big ? '' : ' loading="lazy"'}`)}</span>`;
+  return `<span class="ico cnone${big ? ' big' : ''}">${logoImg(key, `alt="${name}" title="${name}"`, !big)}</span>`;
 }
 const BACK = '<button class="back" data-act="back"><svg viewBox="0 0 9 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5 2 7l5.5 5.5"/></svg>Back</button>';
 const CLOSE = '<button class="ibtn" data-act="close" aria-label="Close"><svg viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg></button>';
@@ -894,9 +911,9 @@ function stopList(st, col, lineId, loop) {
     const inter = other.filter(x => 'hr'.includes(D.lines[x][0]));
     let tx = urb.slice(0, 6).map(x => badgeHTML(x, 'sm')).join('');
     if (inter.length) {
-      // a hand-checked operator logo (China Railway) if there is one, else a train
+      // the operator's logo if data/logos.json has one, else a train
       const lg = inter.map(x => LOGOS[D.lines[x][14]]).find(g => g && g.url);
-      tx += `<span class="badge sm ${inter.some(x => D.lines[x][0] === 'h') ? 'hsr' : 'rl'}${lg ? ' lgw' : ''}" title="Rail connection">${lg ? `<img src="${esc(lg.url)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('lgw')">` : ''}${TRAIN_SVG}</span>`;
+      tx += `<span class="badge sm ${inter.some(x => D.lines[x][0] === 'h') ? 'hsr' : 'rl'}${lg ? ' lgw' : ''}" title="Rail connection">${lg ? `<img src="${esc(lg.url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('lgw');this.remove()">` : ''}${TRAIN_SVG}</span>`;
     }
     h += `<li class="stop${other.length ? ' x' : ''}" data-stn="${si}" tabindex="0"><span class="rail"></span><span class="st"><b>${esc(stnName(s))}</b>${alt(s[0], stnName(s)) ? `<span>${esc(s[0])}</span>` : ''}</span><span class="tx">${tx}</span></li>`;
   }
@@ -1185,7 +1202,7 @@ async function showStation(si, { fly = true } = {}) {
   if (!await ready(needStations([si]), t)) return;
   si = complexOf(si).rep;
   const s = D.stations[si]; if (!s) return;
-  selStation = si; applyStyle(); showLogoPopup(si);
+  sel = null; selStation = si; applyStyle(); showLogoPopup(si);
   if (fly) {
     const z = Math.max(map.getZoom(), 'hrs'.includes(s[4]) ? 12.5 : 14);
     // centred in the part of the map the panel leaves free (flyTo's padding option would stay on the map)
@@ -1331,7 +1348,7 @@ async function boot() {
   setTimeout(() => $('#loading').classList.add('done'), 15000);   // the rail map, even if the base map does not load
   map.on('rotate', () => { $('#compass svg').style.transform = `rotate(${-map.getBearing()}deg)`; });
   const railLayers = ['u-m', 'u-s', 'u-l', 'u-t', 'u-f', 'rail-h', 'rail-r', 'sel-line'];
-  const stnLayers = ['stn-u', 'stn-u1', 'stn-rail', 'sel-stn', 'sel-one'];
+  const stnLayers = ['stn-u', 'stn-u1', 'stn-rail', 'sel-stn'];
   const hitBox = (p, r) => [[p.x - r, p.y - r], [p.x + r, p.y + r]];
   const layers = l => l.filter(x => map.getLayer(x));
   map.on('mousemove', e => {

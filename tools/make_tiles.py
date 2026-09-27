@@ -6,6 +6,8 @@ the network assembled by tools/world/assemble.py (see tools/world/FORMAT.md).
 Every line in full.json is drawn along its OSM ways, cut to the stretch between its end stops. Layers and properties:
   rail  l primary line id · ls "|id|id|" all lines on this track · k kind (h r m l s t f)
         c colour and r badge text (urban) · nm / nz line name for labels (intercity, z5-11)
+        pair 1: one of the two features (one per kind, same geometry) of track that high-speed and other intercity
+        lines share; the site draws them side by side. Every intercity line is drawn in its own kind along all its track.
         Track shared by intercity and urban lines is two features, the urban one drawn over the intercity one.
   stn   i station id · n / z names · b second name in "Both" mode · k kind · x lines at the station complex
         c ring colour · rk rank · ls line ids · ks kinds at this node · kc kinds at the complex
@@ -52,14 +54,6 @@ def cosl(lat): return math.cos(math.radians(lat))
 def mxy(p, c): return np.column_stack([p[:, 0] * 111320 * c, p[:, 1] * 110540])
 def stop_lists(li): return [q for q in [L[li][6]] + L[li][7] if q]
 
-# High-speed lines are drawn blue only on their own fast track: highspeed=yes or a line speed of 200 km/h and up, or,
-# where no conventional line shares it, no speed mapped or a slow stretch under 2 km (a station throat). So a
-# Mini-shinkansen on 130 km/h track, or a conventional line on its own old track through a stretch it shares on paper
-# with a high-speed relation, stays purple.
-def way_speed(t):  # 1 fast, 0 slow, -1 not mapped
-    m = re.match(r'\d+', t.get('maxspeed') or '')
-    return 1 if t.get('highspeed') == 'yes' or (m is not None and int(m.group()) >= 200) else 0 if m or t.get('highspeed') == 'no' else -1
-
 # ---------------------------------------------------------------- rail network index
 # The searches below run on small local graphs: every rail way (sidings too) is kept once in flat
 # arrays and bucketed by 0.1° grid cell, and a search builds the graph of the cells around it.
@@ -71,7 +65,6 @@ IX = dict(zip(RW.tolist(), range(len(RW))))
 NV = np.array([len(WAYS[w][2]) for w in RW], np.int64)
 OFF = np.cumsum(NV) - NV
 SERV = np.array([bool(WAYS[w][1].get('service')) for w in RW], bool)
-SPEED = np.array([way_speed(WAYS[w][1]) for w in RW], np.int8)
 XY, REF = [np.zeros((0, 2))], [np.zeros(0, np.int64)]
 for a in range(0, len(RW), 200000):
     ws = RW[a:a + 200000].tolist()
@@ -86,7 +79,6 @@ def refs(w):
     i = IX.get(w)
     return REF[OFF[i]:OFF[i] + NV[i]] if i is not None else np.asarray(WAYS[w][2], np.int64)
 def known(w): return w in IX or (w in WAYS and len(WAYS[w][0]) >= 2)
-def speed(w): return int(SPEED[IX[w]]) if w in IX else way_speed(WAYS[w][1])
 def ckey(ix, iy): return (ix + 2000) * 4000 + iy + 1000
 def cells(lon0, lat0, lon1, lat1):
     ix = np.arange(math.floor(lon0 / CELL) - 1, math.floor(lon1 / CELL) + 2)
@@ -154,7 +146,9 @@ def dijkstra(adj, dist, dst, cutoff=1e18):
 # corridor using an intercity line between two of its stops). Where a line has no track of its
 # own between consecutive stops (of its main route or a branch), route it along the main-line
 # network (shortest path over OSM nodes inside an ellipse around the two stops) and draw that
-# track as part of the line.
+# track as part of the line. Its own track counts when, seen along the way from one stop to the
+# other, its segments near them (sum of the distances to both at most 1.6x theirs) leave no fifth
+# of the way bare: track that only leaves one of the stops in another direction does not.
 def stops(a, b):
     p = np.array([S[a][2:4], S[b][2:4]], np.float64); c = cosl(p[:, 1].mean())
     A, B = mxy(p, c)
@@ -172,15 +166,22 @@ def route(a, b):
     if not len(src) or not dst: return None
     return dijkstra(adj, {int(i): float(dA[i]) * 3 for i in src}, dst)
 _routes = {}
+def bare(t, s):
+    """The longest stretch of [0, 1] that the intervals between t[s] and t[s + 1] leave uncovered."""
+    lo, hi = np.clip(np.minimum(t[s], t[s + 1]), 0, 1), np.clip(np.maximum(t[s], t[s + 1]), 0, 1)
+    o = np.argsort(lo); lo, reach = lo[o], np.maximum.accumulate(hi[o])
+    return max(lo[0], (lo[1:] - reach[:-1]).max(initial=0), 1 - reach[-1]) if len(s) else 1
 def gaps(li):
-    own = np.concatenate([coords(w)[::2] for w in GEOM[li] if w in IX or w in WAYS] or [np.zeros((0, 2))])
+    ws = [coords(w) for w in GEOM[li] if w in IX or w in WAYS]
+    own = np.concatenate(ws or [np.zeros((0, 2))])
+    sg = np.ones(len(own), bool); sg[np.cumsum([len(x) for x in ws], dtype=np.int64) - 1] = False; sg = sg[:-1]   # own[i]-own[i+1] in one way
     out = []
     for a, b in {(a, b) for q in stop_lists(li) for a, b in zip(q, q[1:])}:
         p, c, A, B, d = stops(a, b)
         if d < 3000: continue
         if len(own):
-            O = mxy(own, c); oA = np.hypot(*(O - A).T); oB = np.hypot(*(O - B).T)
-            if ((oA + oB <= 1.3 * d) & (np.minimum(oA, oB) >= 0.2 * d)).any(): continue
+            O = mxy(own, c); near = np.hypot(*(O - A).T) + np.hypot(*(O - B).T) <= 1.6 * d
+            if bare((O - A) @ (B - A) / (d * d), np.flatnonzero(sg & (near[:-1] | near[1:]))) < 0.2: continue
         if (a, b) not in _routes: _routes[(a, b)] = route(a, b)
         if _routes[(a, b)]: out.append(list(_routes[(a, b)]))
     return out
@@ -348,7 +349,9 @@ del line_ways
 # ---------------------------------------------------------------- rail features
 # Each stretch of track (a way, or the part of one between the nodes where the set of lines on it changes) is drawn
 # once for its intercity lines and once for its urban lines. The urban feature, drawn above, keeps its line's colour
-# on track it shares with intercity trains; the intercity line's name is not written there.
+# on track it shares with intercity trains; the intercity line's name is not written there. Every intercity line is drawn
+# in its own kind all along its track: where high-speed and other intercity trains share track (a TGV among TER trains
+# west of Rennes, a Mini-shinkansen), each kind gets a feature of its own (pair 1), and the site draws the two side by side.
 URBAN_COLOUR = {'s': '#1E8C73', 'm': '#D0453A', 'l': '#D98E04', 't': '#B83280', 'f': '#7C5C3B'}   # lines without one
 SPECIAL = re.compile(r'(?i)special|event|game|stadium|concert|festival|fair\b|expo\b|holiday|christmas|charter|seasonal|excursion|'
                      r'weekend|saturday|sunday|night|nacht|nuit|nocturn|ночн|臨時|深夜')
@@ -356,9 +359,8 @@ groups = defaultdict(list)
 def add(ls, w, i0, i1):
     ic = frozenset(i for i in ls if L[i][0] in 'hr')
     if ic:
-        k = {L[i][0] for i in ic}; sp = speed(w)
-        fast = sp == 1 or 'r' not in k and (sp < 0 or way_km(w) < 2)
-        groups[(ic, 'h' if 'h' in k and fast else 'r', len(ic) < len(ls))].append((w, i0, i1))
+        k = {L[i][0] for i in ic}
+        groups[(ic, k.pop() if len(k) == 1 else 'hr', len(ic) < len(ls))].append((w, i0, i1))
     if len(ic) < len(ls): groups[(frozenset(ls) - ic, None, False)].append((w, i0, i1))
 for w, ls in way_lines.items():
     if w not in part: add(ls, w, 0, None)
@@ -372,7 +374,7 @@ for w, ps in part.items():
 del way_lines, part
 
 def primary(ls, wk=None):
-    """The line a stretch is drawn as, and its kind: intercity by its track (wk) and then the longest line; urban
+    """The line a stretch is drawn as, and its kind: intercity the longest line of its kind (wk); urban
     by the commonest kind, then a regular (not event, weekend or night) line with a colour, the colour most lines
     on it share, the most track, the most stops."""
     if wk:
@@ -400,18 +402,54 @@ pts = np.concatenate(wl or [np.zeros((0, 2))])
 lines = shapely.linestrings(np.column_stack(merc(pts[:, 0], pts[:, 1])), indices=np.repeat(np.arange(len(wl)), [len(p) for p in wl]))
 merged = shapely.line_merge(shapely.multilinestrings(lines, indices=np.repeat(np.arange(len(has)), [len(gws[j]) for j in has])))
 F, fg = shapely.get_parts(merged, return_index=True)
-keys, FP = list(groups), []
-for j in has:
-    ls, wk, _ = keys[j]
+def props(ls, wk):
     prim, k = primary(ls, wk)
-    props = {'l': prim, 'ls': '|' + '|'.join(str(i) for i in sorted(ls)) + '|', 'k': k}
+    p = {'l': prim, 'ls': '|' + '|'.join(str(i) for i in sorted(ls)) + '|', 'k': k}
     if k not in 'hr':
-        props['c'] = L[prim][4] or URBAN_COLOUR[k]
-        if badge(prim): props['r'] = badge(prim)
-    FP.append(props)
-FP, SHARED = [FP[g] for g in fg.tolist()], np.array([keys[has[g]][2] for g in fg.tolist()], bool)
-del WAYS, G, IX, XY, REF, groups, gws, wl, pts, lines, merged
-log('rail features', len(F), '·', sum(p['k'] in 'hr' for p in FP), 'intercity')
+        p['c'] = L[prim][4] or URBAN_COLOUR[k]
+        if badge(prim): p['r'] = badge(prim)
+    return p
+keys = list(groups)
+GP = [[props(keys[j][0], keys[j][1])] if keys[j][1] != 'hr' else
+      [dict(props({i for i in keys[j][0] if L[i][0] == k}, k), pair=1) for k in 'hr'] for j in has]
+# The site draws a pair's high-speed half on the right of the feature's direction, so pairs side by side (the tracks
+# of a double line) or one after another must run the same way. Starting from the longest, each takes the direction of
+# its neighbours (pieces within about 25 m that run in much the same direction); one with none runs along its high-speed
+# line's axis (the direction its stops spread furthest in), eastwards.
+def axis(li):
+    p = np.array([S[x][2:4] for q in stop_lists(li) for x in q], np.float64).reshape(-1, 2)
+    p = np.column_stack(merc(p[:, 0], p[:, 1])); p -= p.mean(0) if len(p) else 0
+    v = np.linalg.svd(p, full_matrices=False)[2][0] if len(p) >= 2 and p.any() else np.array([1.0, 0.0])
+    return v if v[0] > 0 or v[0] == 0 and v[1] < 0 else -v
+def tangent(g, at, e=2e-6):
+    s = shapely.line_locate_point(g, at)   # (a negative distance would count from the far end)
+    t = (shapely.get_coordinates(shapely.line_interpolate_point(g, np.minimum(s + e, shapely.length(g)))) -
+         shapely.get_coordinates(shapely.line_interpolate_point(g, np.maximum(s - e, 0))))
+    return t / np.maximum(np.hypot(*t.T), 1e-15)[:, None]
+n = np.array([len(GP[g]) for g in fg.tolist()], np.int64)
+ix = np.flatnonzero(n == 2); P = F[ix]
+a, b = shapely.STRtree(P).query(P, predicate='dwithin', distance=1e-6); a, b = a[a < b], b[a < b]
+sl = shapely.shortest_line(P[a], P[b])
+dot = (tangent(P[a], shapely.get_point(sl, 0)) * tangent(P[b], shapely.get_point(sl, 1))).sum(1)
+nb = defaultdict(list)
+for i, j, d in zip(a.tolist(), b.tolist(), dot.tolist()):
+    if abs(d) > 0.5: nb[i].append((j, d > 0)); nb[j].append((i, d > 0))
+way = np.zeros(len(P), np.int8)   # 1 as it is, -1 turned
+for r in np.argsort(-shapely.length(P)).tolist():
+    if way[r]: continue
+    ch = shapely.get_coordinates(shapely.get_point(P[r], -1)) - shapely.get_coordinates(shapely.get_point(P[r], 0))
+    way[r] = 1 if float((ch @ axis(GP[fg[ix[r]]][0]['l']))[0]) >= 0 else -1
+    todo = [r]
+    while todo:
+        i = todo.pop()
+        for j, same in nb[i]:
+            if not way[j]: way[j] = way[i] if same else -way[i]; todo.append(j)
+back = way < 0
+F[ix[back]] = shapely.reverse(F[ix[back]])
+F, FP = np.repeat(F, n), [p for g in fg.tolist() for p in GP[g]]
+SHARED = np.repeat(np.array([keys[has[g]][2] for g in fg.tolist()], bool), n)
+del WAYS, G, IX, XY, REF, groups, gws, wl, pts, lines, merged, P, sl, nb
+log('rail features', len(F), '·', sum(p['k'] in 'hr' for p in FP), 'intercity ·', int(2 * (n == 2).sum()), 'in pairs,', int(back.sum()), 'pairs turned')
 
 # the overview (z0-2): the intercity network of each kind merged into one, so it simplifies without gaps at junctions
 IC = np.array([p['k'] for p in FP])

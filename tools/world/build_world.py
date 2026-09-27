@@ -5,40 +5,50 @@ come from tools/build_network.py + curate.py) from the raw pickle of tools/world
                                                                                  DBG=<relation ids> traces relations)
 
 Writes <outdir>/network.json ({lines, stations, cities}: the records of tools/world/FORMAT.md, local ids, ISO
-country codes) and <outdir>/geometry.pickle ({'geometry': [way ids per line], 'ways': {way id: (coords, tags,
-refs)}}: every railway=rail/narrow_gauge way, for routing gaps in the tile step, plus every way a line uses).
+country codes), <outdir>/sources.json ([OSM relation ids] per line, for audits) and <outdir>/geometry.pickle
+({'geometry': [way ids per line], 'ways': {way id: (coords, tags, refs)}}: every railway=rail/narrow_gauge way, for
+routing gaps in the tile step, plus every way a line uses). Reads the Wikidata caches of tools/world/wikidata.py.
 
 Routes    passenger route relations (route=train/subway/light_rail/tram/monorail/funicular) that are open (no lifecycle
           tags, no future opening date, their own track mostly open rail) and not junk (freight, museum / heritage /
-          park / children's railways, theme parks, airside people movers, chairlifts, depot and event runs).
+          park / children's railways, theme parks, airside people movers, chairlifts, depot and event runs: words in
+          the route's own name, operator, network or brand, not in its stops' names) nor in the audited drop list
+          (tools/world/ref/drops.json: relation ids). A junk route_master drops routes that name no operator of their own.
           Stops: stop / platform members (any role spelling) and PTv1 role-less stop nodes, snapped to their station
-          (same or similar name within 400 m, else the nearest station of the mode). With its track (the longest path
-          through its ways) a route's stops are put in track order, stations are added from the track when the
+          (same or similar name within 400 m, else the nearest station of the mode; "Voie B" by distance). With its
+          track (the longest path through its ways) a route's stops are put in track order (a forking route: the stops
+          off that path become branches along their own stretch of track), stations are added from the track when the
           relation lists few of them (all of them for local services, only the ones other long-distance trains stop at
           for expresses), the stations at the ends of the track become termini, and ways past the end stops are cut.
 Lines     one line per service: a route_master (unless its name is only an operator's) or lone routes, clustered
-          around a representative by ref and network, or by shared stations (containment >= 0.8, Jaccard >= 0.6);
-          never transitively. Train-number relations (THSR, TRA, elektrichki, TGV missions ...) group into corridors
-          the same way. The longest route is the main stop list; other routes add branches (their divergent part,
-          2+ stations) or single one-direction stops. Shinkansen / HSR infrastructure relations anchor their services.
+          around a representative by ref and network (sharing a quarter of its stations; a category given as a ref,
+          "R" of Polregio, is no ref), or by shared stations (containment >= 0.8, Jaccard >= 0.6); never transitively.
+          Train-number relations (THSR, TRA, elektrichki, TGV missions ...) group into corridors the same way. The
+          longest route is the main stop list; other routes add branches (their divergent part, 2+ stations) or single
+          one-direction stops. Shinkansen / HSR infrastructure relations anchor their services.
 Fallback  route=railway relations (and timetable / infrastructure relations tagged route=train) where passenger
-          services are not mapped: not freight or abandoned, 3+ stations with passenger evidence on their own track
-          (more than a public_transport tag where a country's services are mapped), and most of their stations not
-          already served by a service line; a trunk line gives only the stretches services miss.
+          services are not mapped: not freight, abandoned or listed, 3+ stations with passenger evidence on their own
+          track (more than a public_transport tag where a country's services are mapped), and most of their stations
+          not already served by a service line; a trunk line whose services cover half of it is left out (never shipped
+          in pieces). One on a service's track (80% of it) gives that service its missing stations instead.
 Kinds     h only for high-speed services (service / highspeed tags, HSR brands, or long-distance products on 250 km/h
           track); s for S-Bahn / RER / commuter / elektrichka (also route=light_rail S-Bahns); m l t f by mode.
-Names     native names cleaned of route descriptions, platform numbers, codes; English: a Latin native name as is,
-          else name:en > int_name > name:<lang>-Latn > transliteration (tools/world/translit.py). Line names that are
-          train numbers, categories or operators become "A – B" from the termini; stop lists read in the name's direction.
-Then duplicates are dropped, stations merged by name, transfers and complexes found, and urban lines get a city
-(city_of()). Lines mostly in mainland China, Hong Kong or Macau are left out.
+Names     native names cleaned of route descriptions, platform numbers, codes; English (tools/world/english.py): a Latin
+          native name as is, else the node's Wikidata label, a nearby Wikidata station's, name:en / int_name /
+          name:<lang>-Latn, the place it is named after, a transliteration. Line names that are train numbers, categories
+          or operators become "A – B" from the ends the relation names or the termini; stop lists read in the name's
+          direction. Operators in English, their logo key the Wikidata item that has a logo (english_operator()).
+Then duplicates (also night lines whose stops day lines serve) are dropped, stations merged by name, transfers and
+complexes found, and urban lines get a city (city_of()). Lines mostly in mainland China, Hong Kong or Macau are left out.
 """
 import datetime, gc, heapq, json, math, os, pickle, re, sys, time
 from collections import Counter, defaultdict
 import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 from countries import country_code
-from translit import translit, latin, plain, ja_word, KANA, HAN, HANGUL, CYR, ABJAD, SEGMENT, TIFINAGH
+from translit import latin, plain, ja_word, KANA, HAN, HANGUL, CYR, ABJAD, TIFINAGH
+from english import english_station, english_line, english_operator, latinize
+import wikidata as wd
 
 T0 = time.time()
 def log(*a): print(f'{time.time() - T0:7.1f}s', *a, flush=True)
@@ -63,6 +73,8 @@ MODES = {'train', 'subway', 'light_rail', 'tram', 'monorail', 'funicular'}
 URBAN = {'subway': 'm', 'light_rail': 'l', 'monorail': 'l', 'tram': 't', 'funicular': 'f'}
 RANK = {'h': 0, 'r': 1, 's': 2, 'm': 3, 'l': 4, 'f': 5, 't': 6}
 EXCLUDE = {'CN', 'HK', 'MO'}          # the China pipeline covers these
+# relations an audit found are not passenger lines (heritage, freight, duplicates, closed ...): {relation id: why}
+DROP = {int(k): v for k, v in json.load(open(os.path.join(os.path.dirname(__file__), 'ref', 'drops.json'))).items()}
 
 # ---------------------------------------------------------------- geometry helpers
 def metres(lon1, lat1, lon2, lat2):
@@ -366,7 +378,10 @@ def good_ref(r, name=''):
     return r
 STN_WORDS = r'(?i)(?:\s*[,(-]\s*|\s+)(?:railway|railroad|train|rail|metro|mrt|lrt|subway|monorail|tram|light rail)\s+station\)?$|\s+Sta\.?$|-eki$'
 PLATFORM = (r'(?i)\s*[-–,(.\[]?\s*\b(?:v[íi]a|and[ée]n|track|platform|plataforma|gleis|gl\.|voie|quai|binario|bin\.|peron|tor|kolej|'
-            r'spoor|bahnsteig|perron|plattform|spår)\s*\d+[a-z]?(?:\s*(?:[-–/+&,]|and|und|et|y|i)\s*\d+[a-z]?)*\b\)?.*$|\s*\d+番線.*$|\s*站台$')
+            r'spoor|bahnsteig|perron|plattform|spår)\s*\d+[a-z]?(?:\s*(?:[-–/+&,]|and|und|et|y|i)\s*\d+[a-z]?)*\b\)?.*$|'
+            r'\s*[-–,(]?\s*\b(?:voie|quai|track|platform|gleis|binario)\s+[A-Z]\d{0,2}\b\)?.*$|\s*\d+番線.*$|\s*站台$')      # "Tours - Voie A1"
+PLATFORM_ONLY = re.compile(r'(?i)(?:v[íi]a|and[ée]n|track|platform|plataforma|gleis|voie|quai|binario|peron|tor|spoor|bahnsteig|perron|spår)'
+                           r'(?:\s*[\dA-Z]{1,3})?')        # a stop named only after its platform ("Voie B"): snapped by distance
 def stn_name(t):
     """Station name without platform / track / pole numbers, codes and station words: "Central, Platform 9" -> "Central",
     "Atocha - Vía 3" -> "Atocha", "Stop 3: Lincoln Square" -> "Lincoln Square", "ایستگاه راه آهن تهران" -> "تهران"."""
@@ -469,7 +484,8 @@ def operator_of(ts, urban):
         cnt = Counter()
         for t in ts:
             v = first(t.get(key + ':en')) if latin(first(t.get(key + ':en'))) else first(t.get(key))
-            if v and not NOT_OP.search(v) and not LINE_REL.search(v) and v.lower() not in {first(t.get('name')).lower(), clean_name(t.get('name')).lower()}:
+            if v and not NOT_OP.search(v) and not (LINE_REL.search(v) and key != 'operator') and \
+                    v.lower() not in {first(t.get('name')).lower(), clean_name(t.get('name')).lower()}:      # "Great Western Railway" operates
                 cnt[(v, first(t.get(key + ':wikidata')) if re.fullmatch(r'Q\d+', first(t.get(key + ':wikidata'))) else '')] += 1
         if cnt:
             (v, q), _ = max(cnt.items(), key=lambda kv: (kv[1], bool(kv[0][1])))
@@ -541,7 +557,7 @@ def snap(nid, mode):
     if key in _snap: return _snap[key]
     out = None
     if nid in NODES and not dead(NODES[nid][2]):
-        lon, lat, t = NODES[nid]; name = sname(nid)
+        lon, lat, t = NODES[nid]; name = sname(nid) if not PLATFORM_ONLY.fullmatch(sname(nid)) else ''
         if stationish(t) and name and mode_ok(t, mode): out = nid
         elif name:
             near = SGRID.near(lon, lat, 500); k, mk = skey(name), smkey(nid)
@@ -555,7 +571,7 @@ def snap(nid, mode):
                 out = nid if stoplike(t) else (close[0] if close else None)
                 if out == nid and close and not t.get('name'): out = close[0]
         else:
-            near = SGRID.near(lon, lat, 300)
+            near = [(d, n) for d, n in SGRID.near(lon, lat, 300) if n != nid and not PLATFORM_ONLY.fullmatch(sname(n))]
             close = [n for d, n in near if mode_ok(NODES[n][2], mode)] or [n for d, n in near if d <= 150]
             out = close[0] if close else None
     _snap[key] = out
@@ -565,8 +581,9 @@ def snap(nid, mode):
 FREIGHT = re.compile(r'freight|güter|fret\b|goods|merci\b|mercanc|cargo|carga\b|industri|\bmines?\b|mining|colliery|coal|kohle|phosphate|'
                      r'\bore\b|iron ore|bauxite|manganese|export line|marchandise|\bport\b|harbou?r|hafen|quarry|steelworks|dienstbahn|'
                      r'werk?sbahn|industriebahn|anschlussbahn|raccordo|binario industriale|貨物|货运|専用線|탄광|광산|화물|товарн|грузов|'
-                     r'Hudut|тарифна дільниця|дільниця \d|tronson|contruction|construction|u/c\b|project|Projesi|\(proje|Subdivision', re.I)
-FREIGHT_SVC = re.compile(r'freight|güter|\bfret\b|\bgoods\b|cargo|貨物|货运|товарн|грузов', re.I)
+                     r'Hudut|тарифна дільниця|дільниця \d|tronson|contruction|construction|u/c\b|project|Projesi|\(proje|Subdivision|'
+                     r'intermodal train|\btupik|тупик', re.I)
+FREIGHT_SVC = re.compile(r'freight|güter|\bfret\b|\bgoods\b|cargo|intermodal train|container train|貨物|货运|товарн|грузов', re.I)
 FREIGHT_OP = re.compile(r'Ferromex|Ferrosur|KCSM|Kansas City Southern|CPKC|Canadian Pacific|Canadian National|\bCN\b|Union Pacific|\bUP\b|'
                         r'BNSF|CSX|Norfolk Southern|Genesee|Trenes Argentinos Cargas|Belgrano Cargas|Nuevo Central Argentino|\bNCA\b|'
                         r'Ferroexpreso|FEPASA|FCAB|Antofagasta|Rumo\b|\bVLI\b|MRS Log|Transnet Freight|Aurizon|Pacific National|'
@@ -583,43 +600,56 @@ def lifecycle(t):
         iso = f'{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}' if m else v[:10]
         if re.match(r'\d{4}', iso) and iso > DATE: return True
     return False
-HERITAGE = re.compile(r'museum|musée|museo|muzeum|muzeal|muzeální|museu|музей|museibana|museispårväg|museumslinjen|heritage|vintage|'
-                      r'histori\w* (?:railway|tram\w*|trolley|train|line|bahn)|histórico|historique|historische|preservation|nostalg|'
-                      r'parkeisenbahn|park ?railway|kolejka parkowa|parkowa|kleinbahn im|freizeitpark|walt disney world|disneyland railroad|europa-park|legoland|'
+HERITAGE = re.compile(r'museum|musée|museo|muzeum|muzeal|muzeální|museu|музей|museibana|museispårväg|museumslinjen|heritage|vintage|veteran(?!s\b)|'
+                      r'histori\w* (?:railway|tram\w*|trolley|train|line|bahn)|histórico|historique|historische|preservation|preserved|nostalg|носталг|'
+                      r'parkeisenbahn|park ?railway|kolejka parkowa|parkowa|kleinbahn im|freizeitpark|walt disney world|disneyland railroad|disney parks|'
+                      r'europa-park|legoland|linnanmäki|rasti-land|'
                       r'phantasialand|heide park|efteling|hansa-park|pairi daiza|tiergartenbahn|zoobahn|zoo railway|liliput|feldbahn|'
                       r'grubenbahn|mine railway|schaubergwerk|theme ?park|six flags|busch gardens|cedar point|seaworld|universal studios|'
                       r"dollywood|knott'?s|kings island|amusement|eisenbahnfreunde|förderverein|\be\.\s?v\.|stichting|preservation society|"
-                      r'railway society|miłośników|amigos del|stoomtrein|stoomtram|museumstoom|dampfbahn|dampfzug|steam train|steam railway|'
-                      r'tourist train|rail tour|train touristique|tren turístico|turystyczn|туристическ|туристичн|детск\w* ж|\w?ДЖД\b|'
+                      r'railway society|miłośników|amigos del|ferroclub|stoomtrein|stoomtram|museumstoom|dampfbahn|dampfzug|steam train|steam railway|'
+                      r'à vapeur|tren de vapor|tourist train|tourist tram|rail tour|touristique|tren turístico|turystyczn|туристическ|туристичн|'
+                      r'trenino verde|treno natura|trenoblu|scenic rail\w*|scenic valley|wine train|dinner train|draisine|детск\w* ж|\w?ДЖД\b|'
                       r'малая \w+ железная|ММЖД|дзіцяч|дитяч\w* залізн|gyermekvasút|dziecięc|dětská|kindereisenbahn|pioniereisenbahn|'
                       r"pioneer railway|children'?s railway|пещер|cave railway|aeromovel|agrowisata|taman mini|遊園|動物園|五分車|skanzen|"
-                      r'vasútmúzeum|forest railway|erdei vasút|waldbahn|ferrocarril minero|jungle jim|mandalay bay|aria express|'
-                      r"fort edmonton|motat|capitol subway|alton towers|thorpe park|chessington world|gardaland|portaventura (?:world|park)|"
-                      r"tivoli (?:gardens|friheden)|parc d.attractions?|attraktionspark|vergnügungspark|amusement park|luna ?park|"
+                      r'vasútmúzeum|forest railway|erdei vasút|ferrocarril minero|jungle jim|mandalay bay|aria express|'
+                      r"fort edmonton|motat|capitol subway|architect of the capitol|alton towers|thorpe park|chessington world|gardaland|"
+                      r"portaventura (?:world|park)|tivoli (?:gardens|friheden)|parc d.attractions?|attraktionspark|vergnügungspark|amusement park|luna ?park|"
                       r'dirksen|senate subway|disney resort line|ディズニーリゾートライン|(?<!アーバン)パークライン|トロッコ|財団|\ba\.?s\.?b\.?l\b|\bvzw\b|minièr', re.I)
 AERIAL = re.compile(r'chairlift|chair lift|sesselbahn|sessellift|(?<!stand)seilbahn|gondola|gondel|téléphérique|teleférico|'
                     r'telecabina|ropeway|aerial tram|リフト|ロープウェイ|ゴンドラ|索道|케이블카|канатн', re.I)
-AIRSIDE = re.compile(r'airside|skymetro|airport skytrain|concourse|plane train|gate ?link|track transit system|airport transit system|aerotrain|'
-                     r'terminal \d+ apm|\bt\d apm|apm t\d|satellite|skyway|\bAGTS\b|underground (?:yellow|blue|green)|sea underground', re.I)
+AIRSIDE = re.compile(r'airside|skymetro|airport skytrain|concourse|plane train|gate ?link|track transit system|aerotrain|stansted airport transit|'
+                     r'terminal \d+ apm|\bt\d apm|apm t\d|satellite|skyway|\bAGTS\b|underground (?:yellow|blue|green)|sea underground', re.I)   # known ones
 TOURIST_OK = re.compile(r'glacier express|bernina|cremallera|zahnradbahn|zugspitz|wendelstein|schafberg|schneeberg|brocken|pilatus|rigi|'
                         r'gornergrat|jungfrau|achensee|wengernalp|montenvers|núria|nuria|montserrat|sóller|soller|inselbahn|flåm|flam|'
-                        r'ghan|indian pacific|kuranda|overland|spirit of|jacobite|tren a las nubes|expreso del sur|white pass|'
+                        r'ghan|indian pacific|overland|spirit of|tren a las nubes|expreso del sur|white pass|'
                         r'funicul|funicolare|standseilbahn|incline|harzer|brockenbahn|molli|fichtelberg|lößnitz|weißeritz|rhb', re.I)
+def own_name(n):
+    """A route's name without its route description, which names stops ("Метро Салтівська лінія: Історичний музей => …")."""
+    parts = re.split(r'\s*[:：]\s*', n or '', 1)
+    return (parts[0] if len(parts) > 1 or not re.search(ARROW, parts[0]) else '') + ' ' + clean_name(n)
 def junk(t):
     """Not a public passenger line: freight, museum / heritage / park / children's railways, theme parks, airside people
-    movers, aerial lifts, private access, depot and event runs, through coaches."""
-    txt = ' '.join(t.get(k, '') for k in ('name', 'name:en', 'operator', 'network', 'brand', 'description', 'official_name'))
+    movers, aerial lifts, depot and event runs, through coaches. Freight, heritage and tourist words are matched in the
+    route's own name, operator, network and brand (and its description when it is of no network: Karlsruhe's tram E
+    notes "Einrücker abends"), not in the names of its stops; depot and airside words in the whole name."""
+    txt = ' '.join([own_name(t.get('name')), own_name(t.get('name:en'))] + [t.get(k, '') for k in ('operator', 'network', 'brand', 'official_name')] +
+                   ([t.get('description', '')] if not t.get('network') else []))
+    full = txt + ' ' + t.get('name', '') + ' ' + t.get('name:en', '')
     svc = {s.strip() for s in (t.get('service') or '').split(';')}
+    if t.get('usage') == 'tourism' or t.get('tourism') == 'attraction': svc.add('tourism')
     if t.get('service') == 'car_shuttle' or t.get('passenger') == 'no' or t.get('railway:traffic_mode') == 'freight' or \
-            t.get('usage') in ('freight', 'industrial', 'military', 'tourism') or FREIGHT_SVC.search(txt): return 'freight'
-    if t.get('access') in ('private', 'customers', 'no', 'permit') or t.get('attraction') or 'admission' in (t.get('fee') or '').lower(): return 'private'
+            t.get('usage') in ('freight', 'industrial', 'military') or FREIGHT_SVC.search(txt): return 'freight'
+    if t.get('attraction') or t.get('leisure') == 'amusement_park' or 'admission' in (t.get('fee') or '').lower() or \
+            t.get('access') in ('private', 'customers', 'no', 'permit') and not t.get('network'):
+        return 'private'           # a ride, or a private line of no public network (Charleroi's métro is access=no, of TEC)
     if AERIAL.search(txt) and not re.search(r'funicul|standseil|incline', txt, re.I): return 'aerial lift'
-    if AIRSIDE.search(txt): return 'airside'
+    if AIRSIDE.search(full) or t.get('airside') == 'yes': return 'airside'
     if re.search(r'Betriebshof|Einsetz|Einrück|Aussetz|turnaround|uniquement.*match|Pre-Game|Post-Game|\bevents?\b|Sonderverkehr|'
-                 r'Stammstrecke|Беспересадочн|through coach|Kurswagen|depot run|excursion', txt, re.I) or 'events' in svc: return 'event / depot run'
+                 r'Stammstrecke|Беспересадочн|Бесперасадачн|through coach|Kurswagen|depot run|excursion', full, re.I) or 'events' in svc: return 'event / depot run'
     if TOURIST_OK.search(txt): return ''
-    if HERITAGE.search(txt): return 'heritage'
-    if svc & {'tourism', 'touristic', 'tourist', 'heritage', 'museum', 'excursion'} and not (
+    if HERITAGE.search(txt) and not SUBURBAN.search(' '.join(t.get(k, '') for k in ('network', 'operator'))): return 'heritage'   # Metra Heritage Corridor
+    if svc & {'tourism', 'touristic', 'tourist', 'heritage', 'museum', 'excursion'} and t.get('route') != 'funicular' and not (
             t.get('network') and first(t.get('network')) != first(t.get('operator')) or good_ref(t.get('ref'))): return 'tourist only'
     return ''
 INFRA_NAME = re.compile(r'^KBS\b|^Kursbuchstrecke|^Ligne d[e\']|Bahnstrecke|^Linea .+ ?[-–] ?|^Línea .+ ?[-–] ?|železniční trať|trať \d|'
@@ -645,7 +675,7 @@ def route_stops(rid, r, mode):
         if STOP_ROLE.search(role) or role == '' and (stationish(t) or t.get('public_transport') == 'stop_position' or
                                                       t.get('railway') in ('stop', 'station', 'halt', 'tram_stop')):
             s = snap(ref, mode)
-            if s is not None and not t.get('name') and s != ref: GUESSED.add((rid, s))
+            if s is not None and (not t.get('name') or PLATFORM_ONLY.fullmatch(sname(ref))) and s != ref: GUESSED.add((rid, s))
             if s is not None and (not out or out[-1] != s): out.append(s)
     return out
 def passenger(t): return t.get('type') == 'route' and t.get('route') in MODES and '直通' not in t.get('name', '')
@@ -691,10 +721,13 @@ def expressish(t):
 ROUTES = {}
 nrej = Counter()
 DENY = {13035324, 5928466, 7826308, 7826309, 8530208, 15342820}   # dead systems still tagged as running (reviewers checked)
-BAD_MASTER = set()          # routes of junk / closed route masters
-for rid, m in RELS.items():
-    if m['tags'].get('type') == 'route_master' and (lifecycle(m['tags']) or junk(m['tags']) or rid in DENY):
-        BAD_MASTER.update(x for typ, x, role in m['members'] if typ == 'r')
+BAD_MASTER = set()          # routes of closed / listed route masters, and of junk ones when they name no operator of their own
+for rid, m in RELS.items():   # (an airside mover's: unless they say they run landside, as Changi's Skytrain between terminals)
+    if m['tags'].get('type') != 'route_master': continue
+    bad, why = lifecycle(m['tags']) or rid in DENY or rid in DROP, junk(m['tags'])
+    if bad or why:
+        BAD_MASTER.update(x for typ, x, role in m['members'] if typ == 'r' and x in RELS and (bad or not any(RELS[x]['tags'].get(k) for k in (
+            'operator', 'network')) or why == 'airside' and not re.search(r'(?i)landside', RELS[x]['tags'].get('name', ''))))
 INFRA_T = []          # route=train relations that map a railway line (handled with the fallback)
 for rid, r in RELS.items():
     t = r['tags']
@@ -702,11 +735,12 @@ for rid, r in RELS.items():
             any(typ == 'n' for typ, _, _ in r['members']):
         t = r['tags'] = dict(t, type='route', route=t['route_master'])     # a route_master with its own members (Tren Maya)
     if not passenger(t): continue
-    why = 'lifecycle' if lifecycle(t) else junk(t) or ('listed as dead' if rid in DENY else '') or ('master' if rid in BAD_MASTER else '')
+    why = 'lifecycle' if lifecycle(t) else junk(t) or ('listed as dead' if rid in DENY else '') or ('audit' if rid in DROP else '') or \
+        ('master' if rid in BAD_MASTER else '')
     if not why and t['route'] == 'train' and is_infra(r): INFRA_T.append(rid); why = 'infrastructure'
     if why:
         nrej[why] += 1
-        if why != 'infrastructure': drop_log(why, rid, t.get('name'), t.get('operator'))
+        if why != 'infrastructure': drop_log(why, rid, t.get('name'), t.get('operator'), DROP.get(rid, ''))
         continue
     ROUTES[rid] = r
 log('routes', len(ROUTES), 'rejected', dict(nrej))
@@ -744,7 +778,7 @@ def fast_way(t):      # high-speed track: 250 km/h, or highspeed=yes without a l
 def speed(t):
     m = re.match(r'\d+', t.get('maxspeed') or '')
     return 0 if not m else int(m.group()) * (1.609 if 'mph' in t.get('maxspeed', '') else 1)
-def along(ways, mode, tr, evidence=None, strict=False):
+def along(ways, mode, tr, evidence=None, strict=False, lim_urban=60):
     """Stations of this mode on the ways, in track order: within 300 m (station nodes of trains, often on the building),
     80 m (halts, stops) or 60 m (urban; 150 m funiculars); a train station only when no other main line is nearer.
     -> [(node, distance along the track)]."""
@@ -753,14 +787,14 @@ def along(ways, mode, tr, evidence=None, strict=False):
     C = np.unique((C[:, None, :] + np.array([(i, j) for i in (-1, 0, 1) for j in (-1, 0, 1)])[None]).reshape(-1, 2), axis=0)
     ks = list(map(tuple, C.tolist()))
     grids = (SGRID, STOPGRID) if mode == 'train' else (SGRID,)
-    cand = sorted({n for g in grids for k in ks for n, x, y in g.c.get(k, ()) if mode_ok(NODES[n][2], mode) and active(NODES[n][2]) and
-                   (evidence is None or evidence(n))})
+    cand = sorted({n for g in grids for k in ks for n, x, y in g.c.get(k, ()) if (mode_ok(NODES[n][2], mode) or mode == 'light_rail' and
+                   NODES[n][2].get('railway') == 'tram_stop') and active(NODES[n][2]) and (evidence is None or evidence(n))})     # Utsunomiya LRT
     if not cand: return []
     _, d = NearIdx(P, SGRID.s).near([NODES[n][:2] for n in cand])
     wset, out = set(ways), []
     for n, dn in zip(cand, d.tolist()):
         t = NODES[n][2]
-        lim = (300 if t.get('railway') == 'station' or t.get('public_transport') == 'station' else 80) if mode == 'train' else 150 if mode == 'funicular' else 60
+        lim = (300 if t.get('railway') == 'station' or t.get('public_transport') == 'station' else 80) if mode == 'train' else 150 if mode == 'funicular' else lim_urban
         if dn > lim: continue
         if mode == 'train':
             dm, w = nearest_main(n)
@@ -780,6 +814,39 @@ def by_track(nodes, tr):
     rank = np.empty(len(o), int); rank[o] = np.arange(len(o))
     if np.corrcoef(np.arange(len(o)), rank)[0, 1] < 0: o = o[::-1]
     return [nodes[i] for i in o]
+def pieces(ways):
+    """Connected groups of ways (sharing a node), longest first."""
+    parent, first_at = list(range(len(ways))), {}
+    def find(i):
+        while parent[i] != i: parent[i] = parent[parent[i]]; i = parent[i]
+        return i
+    for i, w in enumerate(ways):
+        for n in WAYS[w][2].tolist():
+            j = first_at.setdefault(n, i)
+            if j != i: parent[find(i)] = find(j)
+    g = defaultdict(list)
+    for i, w in enumerate(ways): g[find(i)].append(w)
+    return sorted(g.values(), key=lambda ws: -sum(map(way_len, ws)))
+def branch_split(stops, ways, tr):
+    """Stops of a route whose track forks (a train that divides, one relation for a line's services): the ones on its
+    main path in track order, the others in branches along the stretches of track they lie on, each from the main stop
+    nearest its near end -> (main, [branch]) of nodes; None when the ways do not explain 80% of the stops."""
+    _, dd = tr.locate([NODES[n][:2] for n in stops])
+    on, off = [n for n, d in zip(stops, dd.tolist()) if d <= 1500], [n for n, d in zip(stops, dd.tolist()) if d > 1500]
+    main, out = by_track(on, tr) if len(on) >= 2 else None, []
+    if main is None: return None
+    far = [w for w, d in zip(ways, tr.locate([WAYS[w][1][len(WAYS[w][1]) // 2] for w in ways])[1].tolist()) if d > 1000]
+    for ws in pieces(far)[:8]:
+        tb = track(ws) if len(off) >= 2 else None
+        if tb is None: continue
+        pb, db = tb.locate([NODES[n][:2] for n in off])
+        o = [off[i] for i in np.argsort(pb, kind='stable') if db[i] <= 1500]
+        if len(o) < 2: continue
+        off = [n for n, d in zip(off, db.tolist()) if d > 1500]
+        a, b = NODES[o[0]][:2], NODES[o[-1]][:2]
+        ja = min(main, key=lambda n: metres(*NODES[n][:2], *a)); jb = min(main, key=lambda n: metres(*NODES[n][:2], *b))
+        out.append([ja] + o if metres(*NODES[ja][:2], *a) <= metres(*NODES[jb][:2], *b) else [jb] + o[::-1])
+    return (main, out) if len(off) <= 0.2 * len(stops) else None
 def trim(ways, tr, t0, t1):
     """Ways of the route between its first and last stop (a route drawn past its end stops is cut there)."""
     if t0 > 1000 or tr.L - t1 > 1000:
@@ -797,19 +864,21 @@ for rid, r in ROUTES.items():
     exp = mode == 'train' and expressish(t)
     loop = t.get('roundtrip') == 'yes' or len(stops) > 3 and (stops[0] == stops[-1] or metres(*NODES[stops[0]][:2], *NODES[stops[-1]][:2]) < 300)
     tr = (track(ways) if rid not in DBG else Track(ways, True)) if ways and (len(stops) >= 3 or len(stops) < 2 or mode == 'train') else None
-    cand = []
+    cand, bst = [], []
     if tr and not loop:
         if len(stops) >= 3:
             o = by_track(stops, tr)
+            if o is None and mode == 'train' and (sp := branch_split(stops, ways, tr)): (o, bst), nfill['split'] = sp, nfill['split'] + 1
             if o is not None: nfill['reordered'] += o != stops; stops = o
         ends, _ = tr.locate([NODES[stops[0]][:2], NODES[stops[-1]][:2]]) if len(stops) >= 2 else (np.zeros(2), 0)
         sparse = len(stops) <= 3 or tr.L / max(len(stops) - 1, 1) > 6000        # few stops for its length: maybe under-mapped
-        if len(stops) < 2 or mode == 'train' and (not exp and sparse or min(ends) > 1500 or tr.L - max(ends) > 1500):
-            cand = along(ways, mode, tr)
+        few_tram = mode in ('tram', 'light_rail') and len(stops) >= 2 and tr.L / (len(stops) - 1) > 1500     # an under-mapped tram route:
+        if len(stops) < 2 or few_tram or mode == 'train' and (not exp and sparse or min(ends) > 1500 or tr.L - max(ends) > 1500):
+            cand = along(ways, mode, tr, lim_urban=30 if few_tram else 60)                              # the stops beside its track
             cn = [n for n, _ in cand]
             local = {x.strip() for x in (t.get('service') or '').split(';')} & {'commuter', 'suburban', 'local', 'urban'} or \
                 t.get('passenger') in ('suburban', 'urban', 'local') or re.fullmatch(r'S ?\d{1,2}', t.get('ref') or '') or \
-                SUBURBAN.search(' '.join(t.get(k, '') for k in ('name', 'network', 'operator')))
+                SUBURBAN.search(' '.join(t.get(k, '') for k in ('name', 'network', 'operator'))) or few_tram
             long = tr.L > 150000 and len(cn) > 30 and not local and not LINE_REL.search(clean_name(t.get('name')) or '')   # a long-distance train
             if long and len(stops) <= 3: exp = True
             if not exp and (len(stops) < 2 or len(stops) <= 3 and len(cn) >= len(stops) + 2 or local and len(stops) < 0.5 * len(cn)):
@@ -836,7 +905,7 @@ for rid, r in ROUTES.items():
             ways = trim(ways, tr, *sorted(ts_.tolist()))
     few = exp and cand and len(stops) <= 3         # an express with (nearly) no stops: pass 2 adds the major stations on its track
     if few: PASS2[rid] = tr
-    R[rid] = {'mode': mode, 't': t, 'stops': stops, 'ways': ways, 'exp': exp, 'loop': loop, 'cand': cand if few else [], 'n0': len(LISTED[rid])}
+    R[rid] = {'mode': mode, 't': t, 'stops': stops, 'bstops': bst, 'ways': ways, 'exp': exp, 'loop': loop, 'cand': cand if few else [], 'n0': len(LISTED[rid])}
     if rid in DBG: print('  DBG route', rid, t.get('name'), 'exp', exp, 'loop', loop, 'listed', [sname(n) for n in LISTED[rid]], '->', [sname(n) for n in stops])
 log('routes processed', dict(nfill))
 
@@ -847,23 +916,6 @@ for n, (lon, lat, t) in NODES.items():      # readings for Japanese names (trans
             if latin(t.get(k)): ja_word(stn_name(t), stn_name({'name': t[k]})); break
 for lon, lat, kind, name, en, pop in PLACES.values():
     if name and latin(en) and (KANA.search(name) or HAN.search(name)): ja_word(re.sub(r'(?:市|区|町|村)$', '', name), en)
-LANG_LATN = [(KANA, ('name:ja-Latn', 'name:ja_rm')), (HAN, ('name:ja-Latn', 'name:ja_rm', 'name:zh-Latn', 'name:zh_pinyin')),
-             (HANGUL, ('name:ko-Latn',)), (CYR, ('name:ru-Latn', 'name:uk-Latn', 'name:be-Latn', 'name:sr-Latn', 'name:bg-Latn'))]
-def en_of(t, native, cc=''):
-    """English / Latin name: a Latin native name as it is; else name:en, int_name, the romanisation tag of the name's
-    script, a transliteration; for Arabic / Hebrew script the French / German / ... forms; else the native name."""
-    if latin(native): return native
-    for k in ('name:en', 'int_name'):
-        v = stn_name({'name': t.get(k)}) if t.get(k) else ''
-        if latin(v) and re.search(r'[A-Za-z]', v): return v
-    for rx, keys in LANG_LATN:
-        if rx.search(native):
-            for k in keys:
-                if latin(t.get(k)): return stn_name({'name': t[k]})
-    if latin(t.get('name:latin')): return t['name:latin']
-    lat = [stn_name({'name': t.get(k)}) for k in ('name:fr', 'name:de', 'name:es', 'name:it', 'name:pt') if latin(t.get(k))]
-    if lat and (ABJAD.search(native) or SEGMENT.search(native)): return lat[0]
-    return translit(native, cc) or (lat[0] if lat else native)
 NUMS = defaultdict(list)       # pole / platform numbered names ("Banacha 05", "Richmond 1"): base name -> nodes
 _POLE = re.compile(r'(.+?\D)\s+0?\d{1,2}[A-Za-z]?$')
 for n, (lon, lat, t) in NODES.items():
@@ -903,19 +955,20 @@ def station_for(nid):
     if best is not None:
         st_index[nid] = best
         if prio(t) > rec_pri[best] and name:       # a station node names the record better than a stop position
-            s = stations[best]; s[0] = name; s[1] = en_of(t, name, s[8]); rec_pri[best] = prio(t)
+            s = stations[best]; s[0] = name; s[1] = english_station(name, t, lon, lat, s[8]); rec_pri[best] = prio(t)
         return best
     cc = cc_of(nid)
     j = st_index[nid] = len(stations)
-    stations.append([name, en_of(t, name, cc) if name else '', round(lon, 5), round(lat, 5), '', [], [], -1, cc])
+    stations.append([name, english_station(name, t, lon, lat, cc) if name else '', round(lon, 5), round(lat, 5), '', [], [], -1, cc])
     rec_mk.append(mk); rec_pri.append(prio(t)); RGRID.c[(math.floor(lon / RGRID.s), math.floor(lat / RGRID.s))].append((j, lon, lat))
     return j
 def conv(seq):
     out = [s for s in map(station_for, seq) if stations[s][0] or stations[s][1]]
     return [s for i, s in enumerate(out) if i == 0 or s != out[i - 1]]
-for x in R.values(): x['sids'] = conv(x['stops'])
-for rid in DBG & set(R): print('  DBG sids', rid, [(s, stations[s][0]) for s in R[rid]['sids']])
-SERVED = {s for x in R.values() if len(set(x['sids'])) >= 2 for s in x['sids']}
+for x in R.values(): x['sids'] = conv(x['stops']); x['branches'] = [b for b in map(conv, x.pop('bstops')) if len(b) >= 2]
+for rid in DBG & set(R): print('  DBG sids', rid, [(s, stations[s][0]) for s in R[rid]['sids']], R[rid]['branches'])
+def rsids(x): return x['sids'] + [s for b in x.get('branches', []) for s in b]
+SERVED = {s for x in R.values() if len(set(x['sids'])) >= 2 for s in rsids(x)}
 MAJOR = {s for x in R.values() if x['exp'] and len(set(x['sids'])) >= 2 for s in x['sids']}
 # pass 2: expresses and long-distance trains with 0-3 stop members -> their stops plus the stations on their track other
 # long-distance trains stop at (or on high-speed track), and the stations at its ends; failing that, served stations,
@@ -1000,11 +1053,13 @@ def grow(ways, name):
     return sorted(have)
 USED = {w for x in R.values() for w in x['ways']}
 FB, nfb = [], Counter()        # fallback lines: dict(rid, t, stops (records), branches, ways, anchor)
+ORPHAN = []                    # (served station, station no service stops at, served station) along a railway line
 for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' and r['tags'].get('route') == 'railway'] + INFRA_T:
     r = RELS[rid]; t = r['tags']
     ways = [w for typ, w, role in r['members'] if typ == 'w' and w in WAYS and is_main(WAYS[w][0])]
     anchor = bool(ANCHOR.search(t.get('name', '') + t.get('name:en', ''))) or t.get('service') == 'high_speed'
     if not ways or sum(map(way_len, ways)) < 2000: continue
+    if rid in DROP: nfb['audit'] += 1; drop_log('fallback audit ' + DROP[rid], rid); continue
     if lifecycle(t) or open_share(r) < 0.5 or rid in DENY: nfb['closed'] += 1; continue
     if infra_freight(t, ways) or junk(t): nfb['freight / junk'] += 1; drop_log('fallback freight / junk', rid, t.get('name'), infra_freight(t, ways), junk(t)); continue
     c = WAYS[ways[len(ways) // 2]][1]
@@ -1028,10 +1083,17 @@ for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' a
         if stations[s][0] and s not in rec: rec[s] = (p, n)
     if rid in DBG: print('  DBG fallback', rid, t.get('name'), len(ways), 'ways', len(got), 'stations', len(rec), 'records', [stations[s][1] for s in rec][:20])
     if len(rec) < 3: nfb['under 3 stations'] += 1; continue
-    served = sum(s in SERVED for s in rec) / len(rec)
+    served, prev = sum(s in SERVED for s in rec) / len(rec), None
     run = best = 0
     for s in rec: run = 0 if s in SERVED else run + 1; best = max(best, run)
-    if not anchor and not (served < 0.5 or served < 0.8 and best >= 3): nfb['duplicates services'] += 1; continue
+    if rid in DBG: print('  DBG fallback served', round(served, 2), 'unserved run', best, [stations[s][0] for s in rec if s not in SERVED][:12])
+    if not anchor and not (served < 0.5 or served < 0.8 and best >= 3):
+        nfb['duplicates services'] += 1; run = []         # its few stations no service stops at, and the served ones around them
+        for s in rec:
+            if s not in SERVED: run.append(s); continue
+            if run and prev is not None: ORPHAN.append((prev, [x for x in run if strong(x, rec[x][1])], s))
+            prev, run = s, []
+        continue
     if not anchor and MAPPED[stations[next(iter(rec))][8]] >= 30 and sum(strong(s, n) for s, (p, n) in rec.items()) < 0.5 * len(rec):
         nfb['no passenger evidence'] += 1; drop_log('fallback without passenger evidence', rid, t.get('name')); continue
     # stations off the main path (a second branch of the relation) -> a branch from the nearest main station
@@ -1048,34 +1110,38 @@ for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' a
             ja = min(main, key=lambda s: metres(*stations[s][2:4], *a)); jb = min(main, key=lambda s: metres(*stations[s][2:4], *b))
             branches = [[ja] + o] if metres(*stations[ja][2:4], *a) <= metres(*stations[jb][2:4], *b) else [[jb] + o[::-1]]
     if len(main) < 3: continue
-    pieces = [main]
-    if not anchor and (len(main) > 200 or tr.L > 1.5e6) and any(s in SERVED for s in main):    # a trunk line (Trans-Siberian): its unserved stretches
-        pieces, run, branches = [], [], []
-        for i, s in enumerate(main + [None]):
-            if s is not None and s not in SERVED: run.append(i); continue
-            if len(run) >= 3: pieces.append(main[max(run[0] - 1, 0):run[-1] + 2])
-            run = []
-    for piece in pieces:
-        (a, b), _ = tr.locate([stations[piece[0]][2:4], stations[piece[-1]][2:4]])
-        FB.append({'rid': rid, 't': t, 'stops': piece, 'branches': branches, 'ways': trim(ways, tr, min(a, b), max(a, b)) if not branches else ways,
-                   'anchor': anchor})
-        nfb['anchor' if anchor else 'added'] += 1
+    if not anchor and (len(main) > 200 or tr.L > 1.5e6) and served >= 0.5:     # a trunk line (Trans-Siberian) its services mostly
+        nfb['trunk served'] += 1; drop_log('fallback trunk served', rid, t.get('name')); continue     # cover: whole or not at all
+    (a, b), _ = tr.locate([stations[main[0]][2:4], stations[main[-1]][2:4]])
+    FB.append({'rid': rid, 't': t, 'stops': main, 'branches': branches, 'ways': trim(ways, tr, min(a, b), max(a, b)) if not branches else ways,
+               'anchor': anchor})
+    nfb['anchor' if anchor else 'added'] += 1
 log('fallback railway relations', dict(nfb))
 
 # ---------------------------------------------------------------- lines: routes clustered around representatives
-NIGHT = re.compile(r'\bnight|nacht|nuit|noct|ночн|нічн|夜行|심야|nattåg|\bN ?\d', re.I)
+NIGHT = re.compile(r'\bnight|nacht|nuit|noct|nocn|ночн|нічн|夜行|심야|nattåg|\bNL? ?\d', re.I)
 def canon(ref):     # a line code for comparing: "SN6.4" = "SN6", "BRCA" = "CABR" (codes of the two directions)
     k = re.sub(r'\W', '', re.sub(r'\.\d+$', '', ref)).upper()
     return min(k, k[2:] + k[:2]) if re.fullmatch(r'[A-Z]{4}', k) else k
+# train categories given as a ref ("RE" without a number, "Os"), and a ref that 3+ route masters of one operator share
+# (Polregio's "R"): not line codes, never a key for grouping
+CATREF = {'R', 'RE', 'RB', 'RS', 'RX', 'REX', 'IR', 'IRE', 'IC', 'ICE', 'ICN', 'EC', 'EN', 'NJ', 'RJ', 'RJX', 'OS', 'PASS', 'REGIO', 'SP', 'TER', 'TLK'}
+_rm = defaultdict(set)
+for rid, r in RELS.items():
+    if r['tags'].get('type') == 'route_master' and r['tags'].get('ref'): _rm[(first(r['tags']['ref']).upper(), first(r['tags'].get('operator') or r['tags'].get('network')))].add(rid)
+CATREF |= {k for k, v in _rm.items() if len(v) >= 3 and not re.search(r'\d', k[0])}
+def catref(t):
+    r = first(t.get('ref')).upper()
+    return 'train' in (t.get('route'), t.get('route_master')) and (r in CATREF or (r, first(t.get('operator') or t.get('network'))) in CATREF)
 def refkey(ts):
-    c = Counter(canon(good_ref(t.get('ref'), t.get('name', ''))) for t in ts)
+    c = Counter(canon(good_ref(t.get('ref'), t.get('name', ''))) for t in ts if not catref(t))
     c.pop('', None)
     return c.most_common(1)[0][0] if c else ''
 def unit(kind, uid, routes, mt):
     ts = ([mt] if mt else []) + [R[x]['t'] for x in routes]
     main = max(routes, key=lambda x: (len(set(R[x]['sids'])), -routes.index(x)))
     name = next((clean_name(t.get('name')) for t in ts if clean_name(t.get('name'))), '')
-    return {'kind': kind, 'id': uid, 'routes': routes, 'mt': mt, 'sids': {s for x in routes for s in R[x]['sids']}, 'main': main,
+    return {'kind': kind, 'id': uid, 'routes': routes, 'mt': mt, 'sids': {s for x in routes for s in rsids(R[x])}, 'main': main,
             'ends': frozenset((R[main]['sids'][0], R[main]['sids'][-1])),
             'fam': families(ts), 'ref': refkey([mt]) if mt and refkey([mt]) else refkey(ts), 'base': '' if generic(name, ts) else base_key(name),
             'hs': max(2 if HSR.search(t.get('name', '') + ' ' + t.get('brand', '')) or HSR_CS.search(t.get('name', '') + ' ' + t.get('brand', '') + ' ' +
@@ -1093,13 +1159,17 @@ for mid, m in RELS.items():
     if t.get('type') != 'route_master': continue
     rs = [x for typ, x, role in m['members'] if typ == 'r' and x in R and x not in in_master]
     if not rs or '直通' in t.get('name', ''): continue
-    if generic(clean_name(t.get('name')), [t]) and not refkey([t]):
-        continue          # a master that only names the operator or a category: its routes stand alone
     groups = []           # a master of unrelated routes (disjoint stations) -> one unit per group
     for x in sorted(rs, key=lambda x: -len(set(R[x]['sids']))):
         g = next((g for g in groups if overlap(set(R[x]['sids']), set(R[g[0]]['sids']))[0] >= 0.3), None)
         if g is None: groups.append([x])
         else: g.append(x)
+    if generic(clean_name(t.get('name')), [t]) and not refkey([t]):
+        # a master that only names the operator or a category: its routes stand alone; unless it is one line named
+        # after its network ("Caltrain", not its service pattern "Local Weekend")
+        if len(groups) > 1 or not first(t.get('name')) or first(t.get('name')) not in {first(t.get(k)) for k in ('network', 'operator', 'brand')}: continue
+        t = m['tags'] = dict(t, _system='1')
+        if VERBOSE: print('  one-line master named after its network:', mid, t.get('name'))
     in_master.update(rs)
     for g in groups: units.append(unit('m', mid, g, t))
 for rid in R:
@@ -1124,7 +1194,8 @@ for u in units:
         rep = clusters[ci][0]
         if not compat(u, rep): continue
         cont, jac = len(u['sids'] & rep['sids']) / len(u['sids']), overlap(u['sids'], rep['sids'])[1]
-        same = bool(u['ref'] and u['ref'] == rep['ref'] and (u['fam'] & rep['fam'] or not u['fam'] or not rep['fam']) or
+        # one line: its ref (sharing a quarter of its stations: TER 01 Lyon - Paris is not TER 01 Grenoble - Lyon), its name, its ends
+        same = bool(u['ref'] and u['ref'] == rep['ref'] and (u['fam'] & rep['fam'] or not u['fam'] or not rep['fam']) and cont >= 0.25 or
                     u['base'] and u['base'] == rep['base'] and cont >= 0.5 or
                     not u['base'] and not u['ref'] and u['ends'] == rep['ends'] and cont >= 0.5)     # one corridor's train numbers
         if same or cont >= 0.8 or jac >= 0.6:
@@ -1236,7 +1307,7 @@ for cl in clusters:
     loop = len(main) > 3 and (main[0] == main[-1] or R[main_rid]['loop'] and metres(*stations[main[0]][2:4], *stations[main[-1]][2:4]) < 3000)
     if main[0] == main[-1]: main = main[:-1]
     main = list(dict.fromkeys(main))
-    main, branches = branches_of(main, [list(dict.fromkeys(R[x]['sids'])) for x in others] + R[main_rid].get('branches', []))
+    main, branches = branches_of(main, [list(dict.fromkeys(R[x]['sids'])) for x in others] + [b for x in routes for b in R[x].get('branches', [])])
     ref = rep['ref'] and next((good_ref(t.get('ref'), t.get('name', '')) for t in ts if canon(good_ref(t.get('ref'), t.get('name', ''))) == rep['ref']), '')
     ways = sorted({w for x in routes for w in R[x]['ways']})
     kind = kind_of(rep['mode'], ts, main_t, ways, main, ref)
@@ -1244,14 +1315,14 @@ for cl in clusters:
     cand.append({'kind': kind, 'ref': ref, 'ts': ts, 'mt': mt, 'main_t': main_t, 'mode': rep['mode'], 'stops': main, 'branches': branches,
                  'masters': [u['mt'] for u in cl[1:] if u['mt'] and u['mt'] is not mt], 'rids': set(routes) | {u['id'] for u in cl},
                  'loop': int(loop), 'ways': ways, 'op': op, 'logo': logo, 'master': bool(mt) or rep['kind'] == 'a', 'anchor': rep['kind'] == 'a',
-                 'fallback': False, 'night': rep['night'], 'fam': set().union(*(u['fam'] for u in cl)),
+                 'fallback': False, 'night': rep['night'], 'fam': set().union(*(u['fam'] for u in cl)), 'exp': all(R[x]['exp'] for x in routes),
                  'colour': next((colour(t.get('colour')) for t in ts if colour(t.get('colour'))), ''),
                  'net': first(next((t.get('network') or t.get('operator') for t in ts if t.get('network') or t.get('operator')), ''))})
 for f in FB:
     t = f['t']; ways = f['ways']; ref = good_ref(t.get('ref'), t.get('name', ''))
     kind = 'h' if fast_share(ways) >= 0.5 else 's' if commuterish(f['stops']) else 'r'
     op, logo = operator_of([t], False)
-    cand.append({'kind': kind, 'ref': ref, 'ts': [t], 'mt': None, 'main_t': t, 'mode': 'train', 'stops': f['stops'], 'branches': f['branches'], 'masters': [], 'rids': {f['rid']},
+    cand.append({'kind': kind, 'ref': ref, 'ts': [t], 'mt': None, 'main_t': t, 'mode': 'train', 'stops': f['stops'], 'branches': f['branches'], 'masters': [], 'rids': {f['rid']}, 'exp': False,
                  'loop': 0, 'ways': ways, 'op': op, 'logo': logo, 'master': False, 'anchor': False, 'fallback': True, 'night': False,
                  'fam': families([t]), 'colour': colour(t.get('colour')), 'net': first(t.get('network') or t.get('operator'))})
 log('candidate lines', len(cand), Counter(c['kind'] for c in cand))
@@ -1279,6 +1350,27 @@ for ids in votes.values():
             if c['kind'] == 'r' and km_of(c['stops']) <= 150 and not PRODUCT.match(c['ref']) and not any(EXPRESS_CS.search(t.get('ref') or '') for t in c['ts'][:2]):
                 c['kind'] = 's'
 log('outside China', len(cand), 'countries', len({c['cc'] for c in cand}))
+# operators in English and their logos (tools/world/english.py): the operator's Wikidata item, else the rail operator of
+# that name in the line's country; a domestic train line that names no operator: the operator of nearly all the country's
+# trains. The logo key only when Wikidata has a logo for it (or an English Wikipedia article whose infobox shows one).
+nlogo = Counter()
+def tag_ops(ts):        # the other operator / network / brand values of the line's tags, with their Wikidata ids
+    for t in ts[:4]:
+        for k in ('operator', 'network', 'brand'):
+            v = first(t.get(k + ':en')) if latin(first(t.get(k + ':en'))) else first(t.get(k))
+            if v and not NOT_OP.search(v): yield v, first(t.get(k + ':wikidata')) if re.fullmatch(r'Q\d+', first(t.get(k + ':wikidata'))) else ''
+RAILWAYS = {'IN': 'Q819425'}      # the one railway of every main-line train, where OSM names its zones or nothing (Indian Railways)
+for c in cand:
+    dom = c['kind'] in 'hrs' and len({stations[s][8] for s in allst(c)}) == 1
+    name, url, q, wiki = english_operator(c['op'], c['logo'][3:], c['cc'], c['kind'] if dom and not c['op'] else '')
+    for v, vq in ([] if url else tag_ops(c['ts'])):      # no logo for it: the logo of another of its operator tags
+        alt = english_operator(v, vq, c['cc'])
+        if alt[1]: name, url, q, wiki = alt; break
+    if not url and dom and c['cc'] in RAILWAYS and c['mode'] == 'train':
+        q = RAILWAYS[c['cc']]; name, wiki = name or wd.op(q)[0], wd.wiki(q)
+    c['op'], c['logo'] = name or (wd.op(q)[0] if q else ''), 'wd:' + q if q and (url or wiki) else ''
+    nlogo['url' if url else 'wiki' if wiki and c['logo'] else 'item without logo' if q else 'no item'] += 1
+log('operator logos', dict(nlogo))
 
 # ---------------------------------------------------------------- duplicates
 # A line whose stations (nearly) all lie on another line of the same group (intercity + suburban, or one urban kind) is
@@ -1286,6 +1378,48 @@ log('outside China', len(cand), 'countries', len({c['cc'] for c in cand}))
 # line; a fallback line on service lines (80%); a fragment of 2-3 stops without master or ref along a stretch of a line.
 def code(ref): return canon(ref)
 def group(k): return 'i' if k in 'hrs' else k
+# a fallback line on a service line's track (80% of its length) that stops at 60% of its stations there: the stations the
+# service misses go into its stop list (between two of its stops, not past its ends; not into an express where services
+# are well mapped), and it is dropped unless 3+ of its stations are still on no line (Sitarail without Agboville)
+by_way, gone, nmerge = defaultdict(set), set(), Counter()
+for j, m in enumerate(cand):
+    if not m['fallback'] and m['kind'] in 'hrs':
+        for w in m['ways']: by_way[w].add(j)
+for i, c in enumerate(cand):
+    if not c['fallback']: continue
+    share, tot = Counter(), sum(map(way_len, c['ways'])) or 1
+    for w in c['ways']:
+        for j in by_way.get(w, ()): share[j] += way_len(w)
+    ok = sorted((j for j, l in share.items() if l >= 0.8 * tot), key=lambda j: (cand[j]['exp'], -share[j]))
+    if not ok or (cand[ok[0]]['exp'] or any(EXPRESS.search(t.get('name', '')) for t in cand[ok[0]]['ts'][:3])) and MAPPED[cand[ok[0]]['cc']] >= 30: continue
+    m = cand[ok[0]]; st = m['stops']; have = allst(m); left = 0
+    d = dict(zip(c['stops'], NearIdx(samples(sorted(set(m['ways']) & set(c['ways'])))[0], 0.005).near([stations[s][2:4] for s in c['stops']])[1].tolist()))
+    on = [s for s in c['stops'] if d[s] <= 300]
+    if sum(s in have for s in on) < 0.6 * len(on): continue       # the service stops at few of them: a fast train, not their service
+    extra = [s for s in c['stops'] if s not in have]
+    for s in extra:
+        P = stations[s][2:4]
+        if d[s] > 300 or len(st) < 2: left += 1; continue
+        k = min(range(len(st) - 1), key=lambda k: metres(*stations[st[k]][2:4], *P) + metres(*P, *stations[st[k + 1]][2:4]) - metres(*stations[st[k]][2:4], *stations[st[k + 1]][2:4]))
+        a, b = stations[st[k]][2:4], stations[st[k + 1]][2:4]
+        if metres(*a, *P) + metres(*P, *b) - metres(*a, *b) <= max(2000, 0.3 * metres(*a, *b)): st.insert(k + 1, s); nmerge['stations'] += 1
+        else: left += 1
+    if left < 3: gone.add(i); nmerge['lines'] += 1
+    if VERBOSE: print('  fallback merged:', len(extra) - left, 'stations of', c['ts'][0].get('name'), 'into', m['ts'][0].get('name'), m['cc'], '| left', left)
+cand = [c for i, c in enumerate(cand) if i not in gone]
+# a station of a railway line that no service stops at (Arboga, Skövde) goes into the stopping services that call at the
+# served stations on either side of it one after the other
+nxt = defaultdict(list)
+for c in cand:
+    if c['mode'] == 'train' and c['kind'] in 'rs' and not c['exp'] and not c['fallback']:
+        for q in [c['stops']] + c['branches']:
+            for k in range(len(q) - 1): nxt[frozenset(q[k:k + 2])].append(q)
+for a, xs, b in ORPHAN:
+    for q in nxt.get(frozenset((a, b)), ()):
+        k = next((k for k in range(len(q) - 1) if {q[k], q[k + 1]} == {a, b}), None)
+        if k is not None and xs and not set(xs) & set(q):
+            q[k + 1:k + 1] = xs if q[k] == a else xs[::-1]; nmerge['stations between'] += len(xs)
+log('fallback lines merged into services', dict(nmerge))
 for c in cand: c['all'] = allst(c)
 order = sorted(range(len(cand)), key=lambda i: (cand[i]['fallback'], cand[i]['night'], -cand[i]['master'], -bool(cand[i]['ref']),
                                                   -bool(cand[i]['colour']), -len(cand[i]['all']), i))
@@ -1305,6 +1439,9 @@ for i in order:
             dup = 'fragment'
         elif refs and fam and (c['kind'] == 'h') == (m['kind'] == 'h') and (si == sj or cont >= 0.9 and not (c['master'] and m['master'] and c['ref'] and m['ref'])): dup = 'duplicate'
         if dup: break
+    if not dup and c['night'] and c['kind'] in 'mltf' and si <= {x for j in {j for s in si for j in at[s]} if not cand[j]['night'] and
+                                                                 group(cand[j]['kind']) == group(c['kind']) for x in cand[j]['all']}:
+        dup, m = 'night line on day lines', c
     if c['rids'] & DBG: print('  DBG dedupe', c['kind'], c['cc'], c['ts'][0].get('name'), len(si), dup, m['ts'][0].get('name') if dup else '')
     if dup:
         ndup[dup] += 1
@@ -1316,12 +1453,13 @@ cand = [cand[i] for i in sorted(kept)]
 log('after duplicates', len(cand), dict(ndup), Counter(c['kind'] for c in cand))
 
 # ---------------------------------------------------------------- stop order and direction
-def untangle(seq):
-    """A stop list that zigzags (listed out of order, no track to order it by) -> the shortest path through its stops."""
+def untangle(seq, k=1.3):
+    """A stop list that zigzags (listed out of order: no track to order it by, or one the track did not explain; its path
+    over k times its extent) -> the shortest path through its stops."""
     if len(seq) < 4 or len(seq) > 300: return seq
     X = np.array([stations[s][2:4] for s in seq]); D = dmatrix(X)
     plen = D[np.arange(len(seq) - 1), np.arange(1, len(seq))].sum()
-    if plen <= 1.3 * D.max(): return seq
+    if plen <= k * D.max(): return seq
     o = path_order(X)
     if D[o[:-1], o[1:]].sum() > 0.85 * plen: return seq
     return [seq[i] for i in (o if D[o[0], 0] <= D[o[-1], 0] else o[::-1])]
@@ -1351,7 +1489,7 @@ for c in cand:
     if c['loop'] and len(c['stops']) >= 4:      # a loop's stops go round once (~pi x its diameter), not back and forth
         D = dmatrix(np.array([stations[s][2:4] for s in c['stops']]))
         c['loop'] = int(D[np.arange(len(D)), np.roll(np.arange(len(D)), -1)].sum() <= 4 * D.max())
-    if not c['loop'] and not c['ways']: c['stops'] = untangle(c['stops'])
+    if not c['loop']: c['stops'] = untangle(c['stops'], 1.3 if not c['ways'] else 2)
 def fit(s, x):
     """How well station record s matches a place name x from a line name or from= / to= tag."""
     kx = skey(stn_name({'name': x})) if x else ''
@@ -1380,7 +1518,8 @@ for i, c in enumerate(cand):
 OPLIKE.update(v for v, x in _ol.items() if len(x) >= 3 and not LINE_REL.search(v))
 for c in cand:      # the tag set that names the line: the first with a name that is not only a category, number or operator
     tss = ([c['mt']] if c['mt'] else []) + ([c['main_t']] if c['anchor'] else []) + c['masters'] + [c['main_t']] + c['ts']
-    c['nt'] = next((t for t in tss if clean_name(t.get('name')) and not generic(strip_no(clean_name(t.get('name'))), c['ts'])), c['main_t'])
+    c['nt'] = c['mt'] if c['mt'] and c['mt'].get('_system') else \
+        next((t for t in tss if clean_name(t.get('name')) and not generic(strip_no(clean_name(t.get('name'))), c['ts'])), c['main_t'])
 nrev = 0
 for c in cand:
     st = c['stops']; fw = rv = 0
@@ -1406,6 +1545,10 @@ MODE_WORD = {'t': 'Tram', 'f': 'Funicular', 'm': 'Line', 'l': 'Line'}
 SEN = defaultdict(Counter)          # native station name -> its English names (for line names built from place names)
 for st in stations:
     if st[0] and latin(st[1]) and not latin(st[0]): SEN[st[0]][st[1]] += 1
+CAT_WORDS = {'трамвай': 'Tram', 'тролейбус': 'Trolleybus', 'троллейбус': 'Trolleybus', 'метро': 'Metro', 'лінія': 'Line', 'линия': 'Line',
+             'фунікулер': 'Funicular', 'фуникулёр': 'Funicular', 'фуникулер': 'Funicular', 'маршрут': 'Route', 'електричка': 'Commuter train',
+             'электричка': 'Commuter train', 'поїзд': 'Train', 'поезд': 'Train', 'tramvaj': 'Tram', 'tramvay': 'Tram', 'τρένο': 'Train'}
+CAT_EN = re.compile(r'(?i)(?<![\w-])(?:' + '|'.join(sorted(map(re.escape, CAT_WORDS), key=len, reverse=True)) + r')(?![\w-])')
 def en_name(c, n):
     """English form of a non-Latin line name: its stations' English names ("בית שמש - נתניה" -> "Beit Shemesh – Netanya",
     not for Chinese / Japanese, whose line names reuse place names read differently), the rest transliterated."""
@@ -1414,15 +1557,22 @@ def en_name(c, n):
         for a, b in sorted({(stations[s][0], stations[s][1]) for s in c['all'] if latin(stations[s][1]) and not latin(stations[s][0])},
                            key=lambda p: -len(p[0])):
             n = re.sub(r'(?<![\w-])' + re.escape(a) + r'(?![\w-])', ' ' + b + ' ', n)
-    n = re.sub(r'\s+', ' ', n).strip()
+    n = re.sub(r'\s+', ' ', CAT_EN.sub(lambda m: ' ' + CAT_WORDS[m.group(0).lower()] + ' ', n).replace('№', ' ')).strip()     # "Tram 26"
     n = ' – '.join(SEN[p].most_common(1)[0][0] if p in SEN else p for p in re.split(r'\s+[-–]\s+', n))
-    out = translit(desc(n) if ' - ' in n else n, c['cc'])
+    out = english_line(desc(n) if ' - ' in n else n, {}, c['cc'])
     return re.sub(r'\s+', ' ', out).strip() if out and latin(out) else ''
+KMPOST = re.compile(r'(?i)^(?:\w{1,4}\.\s*)?\d+\s*(?:км|km)\b')        # "340 км", "Пл. 59 км": a halt named by its distance
 def termini(c):
-    a, b = stations[c['stops'][0]], stations[c['stops'][-1]]
+    st = c['stops']       # the line's end stations, a km-post end as the first named station inside it
+    i = next((i for i in range(len(st)) if not KMPOST.match(stations[st[i]][0])), 0)
+    j = next((j for j in range(len(st) - 1, -1, -1) if not KMPOST.match(stations[st[j]][0])), len(st) - 1)
+    a, b = (stations[st[i]], stations[st[j]]) if i < j else (stations[st[0]], stations[st[-1]])
     if c['loop']:
         b = stations[max(c['stops'], key=lambda s: metres(*a[2:4], *stations[s][2:4]))]
         return f'{a[0]} – {b[0]} – {a[0]}', f'{a[1] or a[0]} – {b[1] or b[0]} – {a[1] or a[0]}'
+    for x, y in ends_of(c)[:1]:      # the ends its relation names when the line has them (Lyria "Nice - Genève", not "Nice - Tenay")
+        sx, sy = max(c['all'], key=lambda s: fit(s, x)), max(c['all'], key=lambda s: fit(s, y))
+        if sx != sy and fit(sx, x) >= 2 and fit(sy, y) >= 2: a, b = stations[sx], stations[sy]
     return f'{a[0]} – {b[0]}', f'{a[1] or a[0]} – {b[1] or b[0]}'
 for c in cand:
     ts = c['ts']; tss = ([c['mt']] if c['mt'] else []) + c['masters'] + [c['main_t']] + ts; nt = c['nt']
@@ -1439,13 +1589,13 @@ for c in cand:
         # an urban line named by its number: "Tram 9", "Linie 2", "U2", "F Train" stay; a bare number becomes "Line 3"
         if not rest and not re.search(r'[^\W\d]', c['ref']): name = f"{MODE_WORD[c['kind']]} {c['ref']}"
         elif not rest: name = c['ref']
-        ref = c['ref'] if latin(c['ref']) else (translit(c['ref'], c['cc']) or c['ref']).upper()
+        ref = c['ref'] if latin(c['ref']) else latinize(c['ref'], c['cc']).upper()
         if not en or generic(strip_no(en), ts) and not latin(name): en = name if latin(name) else f"{MODE_WORD[c['kind']]} {ref}"
-    elif generic(stem, ts) or not name:
+    elif (generic(stem, ts) or not name) and not nt.get('_system'):
         brand = next((first(t.get('brand')) for t in [nt, c['main_t']] + tss[:1] if PRODUCT_NAME.fullmatch(first(t.get('brand')))), '')
         prod = stem if PRODUCT_NAME.fullmatch(stem) else brand
         if re.fullmatch(r'(?i)IC|ICN|EC|EN|TER|Regio|REX|Intercity|InterCity', prod): prod = ''
-        if prod: name, en = f"{prod}: {c['desc']}", f"{translit(prod, c['cc']) or prod}: {c['desc_en']}"
+        if prod: name, en = f"{prod}: {c['desc']}", f"{latinize(prod, c['cc'])}: {c['desc_en']}"
         else: name, en = c['desc'], c['desc_en']
     elif stem != name and stem:        # "Bolan Mail 4DN" -> "Bolan Mail"
         name = stem; en = strip_no(en) if en else en
@@ -1560,7 +1710,7 @@ for i, c in enumerate(cand):
         p = PL[j]; cc = pcc(j)
         native = p[3]
         if (HAN.search(native) or HANGUL.search(native)) and len(native) >= 3: native = re.sub(CJK_CITY, '', native)
-        en = p[4] if latin(p[4]) else (native if latin(native) else translit(native, cc) or native)
+        en = p[4] if latin(p[4]) else latinize(native, cc)
         city_idx[j] = len(cities); cities.append([native, en, round(p[1], 5), round(p[2], 5), p[5], 0, cc, ''])
     c['city'] = city_idx[j]; cities[c['city']][5] += 1
     if c['logo']: city_nets[c['city']][c['logo']] += {'m': 10, 'l': 3, 't': 3}.get(c['kind'], 1)   # the metro's logo first
@@ -1673,6 +1823,8 @@ for l in lines:
     l[6] = [new[s] for s in l[6]]; l[7] = [[new[s] for s in b] for b in l[7]]
 os.makedirs(OUT, exist_ok=True)
 json.dump({'lines': lines, 'stations': S, 'cities': cities}, open(os.path.join(OUT, 'network.json'), 'w'), ensure_ascii=False, separators=(',', ':'))
+json.dump([sorted({x[1] if isinstance(x, tuple) else x for x in c['rids']}) for c in cand],       # the OSM relations of each line (audits)
+          open(os.path.join(OUT, 'sources.json'), 'w'), separators=(',', ':'))
 ways = {w: (v[1], v[0], v[2]) for w, v in WAYS.items() if v[0].get('railway') in ('rail', 'narrow_gauge')}
 for g in geometry:
     for w in g: ways[w] = (WAYS[w][1], WAYS[w][0], WAYS[w][2])

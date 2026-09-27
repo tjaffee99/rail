@@ -19,7 +19,8 @@ City record: [zh, en, lon, lat, population, urban lines]
 import json, re, sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 import jieba, pypinyin
-from names import LINE_EN, LINE_ZH, URBAN, STATION_EN, FREIGHT, NOT_PUBLIC
+from names import LINE_EN, LINE_ZH, URBAN, STATION_EN, FREIGHT, FREIGHT_AUDIT, NOT_PUBLIC
+FREIGHT = list(FREIGHT) + FREIGHT_AUDIT
 jieba.setLogLevel(60)
 
 ROOT = os.path.join(os.path.dirname(__file__), '..')
@@ -367,6 +368,18 @@ for members in members_of.values():
     for m in members: S[m][7] = rep
 print('station complexes:', ncx)
 
+# English names: plain readable Latin - no soft hyphens, tone marks, full-width brackets, stray non-Latin letters or
+# all-lower-case words ("Chengxin\u00addadao", "Běishān", "硃山湖（北/南）", "Huo Jierte ق و ج ى ر ت ى", "kaili")
+import unicodedata
+def plain_en(en, zh):
+    en = (en or '').replace('\u00ad', '').replace('（', ' (').replace('）', ')')
+    en = ''.join(c for c in unicodedata.normalize('NFD', en) if not unicodedata.combining(c))
+    en = re.sub(r"[^\x20-\x7e\u00c0-\u024f]", ' ', en)
+    en = re.sub(r'\([^A-Za-z]*\)', '', re.sub(r'\s+', ' ', en)).strip()
+    if re.search(r'[一-鿿]', en) or not re.search('[A-Za-z]', en): en = py(re.sub(r'（.*?）|\(.*?\)', '', zh)) if zh else en
+    return ' '.join(w[:1].upper() + w[1:] if w[:1].islower() else w for w in en.split(' '))
+for st in S:
+    if st[1] or st[0]: st[1] = plain_en(st[1], st[0])
 json.dump(d, open(P, 'w'), ensure_ascii=False, separators=(',', ':'))
 from collections import Counter
 print('hidden by curation:', Counter(v.split(' of ')[0] for v in reasons.values()))

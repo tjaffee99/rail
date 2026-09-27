@@ -13,6 +13,9 @@ Outputs (see tools/world/FORMAT.md)
   data/search.json        names for search                             (loaded on first search)
   build/full.json         every line / station / city / country with global ids (for make_tiles.py)
   build/geometry.pickle   {'geometry': [way ids per global line id], 'ways': {way id: (coords, tags, refs)}}
+  data/logos.json         the hand-checked logos (China) plus an entry for every "wd:Q…" logo key the lines use:
+                          {name, url} with the 120 px Commons thumbnail or English Wikipedia infobox logo, else
+                          {name, wiki} (tools/world/wikidata.py caches), so the site makes no Wikidata calls for them
 
 Where the pipelines meet (Urumqi, Suifenhe), a world station at a China station (the same node, or the same
 name within 150 m) becomes that China station. A world station the 1:10m borders put in China whose lines
@@ -241,6 +244,27 @@ def main():
     for k, p in pts.items():
         x, y = zip(*main_cluster(p))
         countries[k][6] = [round(v, 3) for v in (min(x), min(y), max(x), max(y))]
+
+    # ---- logos: the hand-checked ones and the Wikidata logos the lines and cities use, resolved from the caches
+    logos = {k: v for k, v in (json.load(open(LOGOS)) if os.path.exists(LOGOS) else {}).items() if not k.startswith('wd:')}
+    names = defaultdict(Counter)
+    for l in L2: names[l[14]][l[13]] += 1
+    import wikidata as wd
+    keys = sorted(k for k in set(names) | {c[7] for c in C2} if k.startswith('wd:'))
+    for k in keys:
+        en, url = wd.op(k[3:]); wiki = '' if url else wd.wiki(k[3:])
+        url = url or wd.wiki_logo(wiki) or ''    # the article's infobox logo, looked up once (wikidata.py wikilogos)
+        name = next((n for n, _ in names[k].most_common() if n), en)
+        if url or wiki and wd.wiki_logo(wiki) is None: logos[k] = {'name': name, 'url': url} if url else {'name': name, 'wiki': wiki}
+    miss = {k for k in keys if k not in logos}          # no logo anywhere: no key, so the site does not look for one
+    for l in L2:
+        if l[14] in miss: l[14] = ''
+    for c in C2:
+        if c[7] in miss: c[7] = ''
+    os.makedirs(DATA, exist_ok=True)
+    json.dump(logos, open(os.path.join(DATA, 'logos.json'), 'w'), ensure_ascii=False, separators=(',', ':'))
+    print('logos', len(logos), 'wikidata', sum(k.startswith('wd:') for k in logos), '(wiki only', sum(1 for v in logos.values() if 'wiki' in v),
+          ') keys without a logo, cleared', len(miss))
 
     # ---- shards: per country, split by size; lines of a country go with its stations
     os.makedirs(os.path.join(DATA, 'net'), exist_ok=True)
