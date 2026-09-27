@@ -1034,15 +1034,16 @@ async function openLink(hash) {
 
 // ---------------------------------------------------------------- search
 // data/search.json loads on first use: {l: [[line, en, native, ref, city, kind, country]], s: [[station, en, native, kind, lines, country]]}.
-// Names are compared word by word, in lower case without accents and with common abbreviations folded ("Hbf" and
-// "Hauptbahnhof", "St" and "Saint"), and results are ranked by how well they match times how much the place matters:
+// Names are compared word by word, in lower case without accents and with common abbreviations spelled out ("Hbf" is
+// "Hauptbahnhof", "St" is "Saint", so that a word still being typed matches), and results are ranked by how well they
+// match times how much the place matters:
 // a station by its lines, a city by its population, a line by its kind and city. The index is built a slice at a time
 // (the page stays responsive) and dropped after a few idle minutes (phones).
-const FOLD = { hauptbahnhof: 'hbf', hb: 'hbf', saint: 'st', sankt: 'st', street: 'st', sainte: 'ste', station: 'stn', mount: 'mt', fort: 'ft',
+const FOLD = { hbf: 'hauptbahnhof', hb: 'hauptbahnhof', st: 'saint', ste: 'sainte', stn: 'station', mt: 'mount', ft: 'fort',
   centraal: 'central', centrale: 'central', centrala: 'central', centralna: 'central', centralny: 'central', centralnyy: 'central' };
-function norm(s) {
+function norm(s, fold = true) {
   const w = (s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/ß/g, 'ss').replace(/['’`]/g, '').split(/[^\p{L}\p{N}\p{M}]+/u).filter(Boolean);
-  return w.length ? [''].concat(w.map(x => FOLD[x] || x)).join(' ') : '';   // ' word word', one flat string
+  return w.length ? [''].concat(fold ? w.map(x => FOLD[x] || x) : w).join(' ') : '';   // ' word word', one flat string
 }
 // IDX: per entry its type (l line, s station, c city, n country), id, names (a, b), other words (x: a line's city, a
 // country's other names), code (r: line ref, country ISO), importance (w) and search.json row (e)
@@ -1067,23 +1068,30 @@ setInterval(() => { if (IDX && !$('#q').value && Date.now() - idxUsed > 180e3) I
 function search(q) {
   const n = norm(q); if (!n) return [];
   idxUsed = Date.now();
-  const words = n.slice(1).split(' '), sw = words.map(w => ' ' + w), num = /\d$/.test(n);
+  // the query as typed too, when it has an abbreviation ("Liverpool St" is also "Liverpool Street")
+  const qs = [...new Set([n, norm(q, false)])].map(n => ({ n, words: n.slice(1).split(' '), sw: n.slice(1).split(' ').map(w => ' ' + w) }));
+  const num = /\d$/.test(n);
   // q at the start of a word of s, not inside a longer number ("line 1" is not "line 10"); -1 if none
   const at = (s, q) => { let i = s.indexOf(q); while (i >= 0 && num && /\d/.test(s[i + q.length] || '')) i = s.indexOf(q, i + 1); return i; };
   const X = IDX, res = [];
-  for (let j = 0; j < X.t.length; j++) {
+  const match = (j, { n, words, sw }) => {
     const a = X.a[j], b = X.b[j], x = X.x[j], r = X.r[j], ia = at(a, n), ib = b === a ? ia : at(b, n);
-    let m;
-    if (a === n || b === n || r === n) m = 1;
-    else if (ia === 0 || ib === 0) m = 0.8;
-    else if (ia > 0 || ib > 0 || at(x, n) >= 0) m = 0.7;
-    else if (sw.length > 1 && sw.every(w => at(a, w) >= 0 || at(b, w) >= 0 || at(x, w) >= 0 || r === w)) m = 0.5;
-    else if (words.every(w => a.includes(w) || b.includes(w) || x.includes(w))) m = 0.35;
-    else continue;
+    if (a === n || b === n || r === n) return 1;
+    if (ia === 0 || ib === 0) return 0.8;
+    if (ia > 0 || ib > 0 || at(x, n) >= 0) return 0.7;
+    if (sw.length > 1 && sw.every(w => at(a, w) >= 0 || at(b, w) >= 0 || at(x, w) >= 0 || r === w)) return 0.5;
+    if (words.every(w => a.includes(w) || b.includes(w) || x.includes(w))) return 0.35;
+    return 0;
+  };
+  for (let j = 0; j < X.t.length; j++) {
+    let m = match(j, qs[0]);
+    if (qs[1] && m < 1) m = Math.max(m, match(j, qs[1]));
+    if (!m) continue;
     // a line named after its termini ("London Victoria – Epsom Downs") after the station; a line whose number is not
     // the one asked for ("U5" is not "U6")
+    const r = X.r[j];
     if (X.t[j] === 'l' && m < 0.8) m *= 0.8;
-    if (X.t[j] === 'l' && num && r && /\d/.test(r) && !words.includes(r.slice(1))) m *= 0.6;
+    if (X.t[j] === 'l' && num && r && /\d/.test(r) && !qs[0].words.includes(r.slice(1))) m *= 0.6;
     res.push([m * (1 + 3 * X.w[j]), j]);
   }
   res.sort((p, q) => q[0] - p[0]);
@@ -1327,7 +1335,7 @@ async function boot() {
   const layers = l => l.filter(x => map.getLayer(x));
   map.on('mousemove', e => {
     const f = map.queryRenderedFeatures(hitBox(e.point, 5), { layers: layers([...stnLayers, ...railLayers, 'city-dot']) });
-    map.getCanvasContainer().classList.toggle('pointer', f.length > 0);
+    map.getCanvasContainer().classList.toggle('pointer', f.some(x => x.properties.l !== -1));   // not the overview's lines (l -1)
   });
   map.on('click', e => {
     const dot = map.queryRenderedFeatures(hitBox(e.point, 6), { layers: layers(['city-dot']) });
