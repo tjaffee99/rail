@@ -5,7 +5,8 @@ be stopped and started again; delete a cache file to fetch it anew.
     python3 tools/world/wikidata.py <nodes> <relations.json> [full.json] [steps]
         nodes      raw_world.pickle (its 'stations') or any pickle of {node id: (lon, lat, tags)}
         full.json  build/full.json: its line operators are matched by name too
-        steps      any of classes items near places ops logos summary (default: all, in that order)
+        steps      any of classes items near places ops logos summary (default: all, in that order); ops also
+                   reads tools/world/ref/operators.json and fetches the items it names
 
 Caches in WD_DIR:
   classes.json     station classes: the subclass tree of railway station Q55488, metro station Q928830, tram stop Q2175765,
@@ -22,12 +23,17 @@ Caches in WD_DIR:
                    rank, else current, else latest), countries P17, classes P31, industries P452, English description,
                    parent organisation P749 / owner P127 / operator P137, redirect target
   ophits.json      {"name|CC": [qid, ...]} items whose label or alias (English or the country's languages) is exactly an
-                   operator / network / brand string that has no wikidata id; op_by_name() picks the one rail operator
+                   operator / network / brand string of the lines or the station nodes; op_by_name() picks the one rail operator
+  opsearch.json    {"name|CC": [qid, ...]} Wikidata's entity search (via the query service's MWAPI, any case, prefixes) for the
+                   strings with no exact hit; oplabels.json {qid: [labels and aliases]} to accept only hits named like the string
+  sitelinks.json   {qid: {lang: title}} the Wikipedia articles (English and the item's countries' languages) of the operator
+                   items and their parents
   thumbs.json      {file: http status of its thumb() url} for a random sample of the logos (upload.wikimedia.org
                    rate-limits scripted clients, so not all of them)
   wiki.json        {qid: English Wikipedia title or ''} of the operator items and their parents
-  wikilogos.json   {title: 120 px url of the logo in that article's infobox, or ''}; step wikilogos (run as
-                   "wikidata.py wikilogos <network.json> ...": the articles of the logo keys those lines use)
+  wikilogos.json   {title: 120 px url of the logo in that article's infobox, or ''}: English titles as they are, others as
+                   "lang:title" (their logo / логотип / logó / ロゴ / 标志 ... field); the articles of the items without a
+                   Commons logo, and data/logos.json's {name, wiki} ones (also "wikidata.py wikilogos <network.json> ...")
   national.json    {CC: [qid, logo url, share, n]} the operator whose logo 90%+ of the country's 20+ train services with a
                    known operator show
   countries.json   {ISO: qid}
@@ -38,11 +44,15 @@ Module API (reads the caches only, never the network; every function loads them 
   nearby(lon, lat, cc, r=500) -> [(metres, qid, en, labels)]      Wikidata stations of that country within r metres, nearest first
   places(name, cc) -> [(qid, lon, lat, en)]                        items whose native label is exactly this name
   op(qid) -> (en, url)                                             English label and 120 px logo url ('' when none) of an
-                                                                   operator / network / brand; the logo of its parent
-                                                                   organisation, owner or operator (when that is a
-                                                                   transport company) when it has none
-  railish(ops entry) -> bool                                       a rail / public transport company, network, authority
-  op_by_name(name, cc) -> qid                                      the rail operator item this name stands for, or ''
+                                                                   operator / network / brand: its P154 / P8972 logo, the
+                                                                   curated file (ref/operators.json "logos"), its English then
+                                                                   native Wikipedia infobox logo; else its parent
+                                                                   organisation's, owner's or operator's (a transport company,
+                                                                   not an infrastructure manager; or the curated parent)
+  railish(ops entry) -> bool                                       a rail / public transport company, network or authority
+  op_by_name(name, cc) -> qid                                      the rail operator item this name stands for: curated, exact
+                                                                   label, entity search; '' when none or ambiguous
+  curated(name, cc), curated_entry(name, cc)                       tools/world/ref/operators.json "names" (see its _about)
   wiki_logo(title) -> url                                          the logo of that article's infobox (wikilogos.json), '' when
                                                                    it has none, None when not looked up
   wiki(qid) -> title                                               English Wikipedia article whose infobox logo stands in
@@ -52,7 +62,7 @@ Module API (reads the caches only, never the network; every function loads them 
                                                                    png thumbnail; bitmap: Special:FilePath?width=120)
   LANGS[cc] -> [wikidata language codes]                           the languages of a country
 """
-import hashlib, json, math, os, pickle, re, sys, time, urllib.parse, urllib.request, urllib.error
+import hashlib, json, math, os, pickle, re, sys, time, unicodedata, urllib.parse, urllib.request, urllib.error
 from collections import Counter, defaultdict
 import geonamescache
 sys.path.insert(0, os.path.dirname(__file__))
@@ -268,7 +278,7 @@ def op_variants(n):
     v = {n, norm_op(n), n.upper(), norm_op(n).upper(), n.title(), norm_op(re.split(LEGAL, n)[0])}
     for part in re.split(r'\s+[-–/]\s+|\s*[()]\s*|/', n): v.add(norm_op(part))
     return {x for x in v if len(x) >= 3 or x == n}
-RAIL_CLS = set('Q249556 Q17102188 Q18325841 Q5503 Q1268865 Q95723 Q1412403 Q14626453 Q57498564 Q7835189 Q2127330 Q187934 Q639030 Q142031 '
+RAIL_CLS = set('Q249556 Q85907346 Q17102188 Q18325841 Q5503 Q1268865 Q95723 Q1412403 Q14626453 Q57498564 Q7835189 Q2127330 Q187934 Q639030 Q142031 '
                'Q115267527 Q17377208 Q521458 Q3491904 Q2324835 Q844054 Q514989 Q178512 Q3565868 Q924286 Q740752 Q1192191 Q211382'.split())
 RAIL_IND = {'Q3565868', 'Q178512', 'Q1370468', 'Q4127920', 'Q7590'}
 RAIL_DESC = re.compile(r'(?i)\b(?:rail(?:way|road)?s?|rail transport|trains?|train operat\w*|metro|subway|underground|tram(?:way)?s?|transit|'
@@ -294,6 +304,67 @@ def fetch_opnames(pairs):
     write('ophits.json', hits)
     fetch_ops({q for qs in hits.values() for q in qs})
     return hits
+def nkey(s):
+    """Comparison key of an operator name: no legal form, quotes, case, accents or punctuation ("MÁV-START Zrt." = "MÁV-Start")."""
+    s = unicodedata.normalize('NFKD', norm_op(s or '').lower().replace('ё', 'е'))
+    return re.sub(r'[\W_]+', '', ''.join(c for c in s if not unicodedata.combining(c)))
+def search_variants(n, short=False):
+    """The strings to give the entity search for an operator: without legal form and quotes, and its parts ("A - B", "A (B)");
+    short: its first word(s) ("erixx Holstein GmbH" -> "erixx", "agilis Verkehrsgesellschaft mbH & Co. KG" -> "agilis")."""
+    v = [norm_op(n)] + [norm_op(p) for p in re.split(r'\s+[-–/]\s+|\s*[()]\s*|/|,\s+', n)]
+    if short: w = norm_op(n).split(); v = [x for x in (w[0] if len(w) > 1 else '', ' '.join(w[:2]) if len(w) > 2 else '') if len(x) >= 5]
+    return [x for x in dict.fromkeys(v) if len(x) >= 3 and not re.fullmatch(r'[\W\d_]+', x)][:4]
+_SEARCH_Q = ('SELECT ?s ?l ?i WHERE { VALUES (?s ?l) { %s } SERVICE wikibase:mwapi { bd:serviceParam wikibase:endpoint "www.wikidata.org"; '
+             'wikibase:api "EntitySearch"; mwapi:search ?s; mwapi:language ?l; mwapi:limit "10". ?i wikibase:apiOutputItem mwapi:item. } }')
+def fetch_search(pairs, short=False):
+    """opsearch.json {"name|CC": [qid, ...]}: Wikidata's entity search (labels and aliases, any case, prefixes) for operator
+    strings no item is labelled exactly (ophits.json), in English and the country's languages; op_by_name() takes a hit
+    only when one of its labels or aliases is the name (oplabels.json)."""
+    found = read('opsearch.json', {}); sfx = '|short' if short else ''     # short: the first words of the unmatched ones
+    todo = sorted({(n, cc) for n, cc in pairs if n + '|' + cc + sfx not in found})
+    log('opsearch', len(found), 'cached,', len(todo), 'to fetch', sfx)
+    for k, part in enumerate(batched(todo, 8)):
+        vals, back = set(), defaultdict(set)
+        for n, cc in part:
+            for v in search_variants(n, short):
+                for l in dict.fromkeys([x for x in LANGS.get(cc, []) if x != 'mul'][:2] + ['en']):
+                    vals.add('(%s "%s")' % (json.dumps(v, ensure_ascii=False), l)); back[(v, l)].add(n + '|' + cc)
+        try: rows = sparql(_SEARCH_Q % ' '.join(sorted(vals))) if vals else []
+        except (TimeoutError, urllib.error.HTTPError) as e: log('  search failed', type(e).__name__, part[:2]); continue
+        for n, cc in part: found[n + '|' + cc + sfx] = []
+        for r in rows:
+            for key in back.get((r['s'], r['l']), ()):
+                if qid(r['i']) not in found[key + sfx]: found[key + sfx].append(qid(r['i']))
+        if k % 25 == 24: write('opsearch.json', found); log('  opsearch', len(found))
+    write('opsearch.json', found)
+    return found
+def fetch_labels(qs):
+    """oplabels.json {qid: [every label and alias]} of the operator candidates, to check a search hit by its names."""
+    lab = read('oplabels.json', {})
+    todo = sorted(set(qs) - set(lab), key=lambda q: int(q[1:]))
+    log('oplabels', len(lab), 'cached,', len(todo), 'to fetch')
+    for part in batched(todo, 60):
+        got = defaultdict(set)
+        for r in sparql('SELECT ?i ?v WHERE { VALUES ?i { %s } ?i rdfs:label|skos:altLabel ?v }' % ' '.join('wd:' + q for q in part)):
+            got[qid(r['i'])].add(r['v'])
+        for q in part: lab[q] = sorted(got.get(q, ()))
+    write('oplabels.json', lab)
+    return lab
+def fetch_sitelinks(qs):
+    """sitelinks.json {qid: {lang: title}}: the item's Wikipedia articles in English and in its countries' languages, whose
+    infobox logo stands in for a missing Commons logo (wiki_logo)."""
+    sl = read('sitelinks.json', {}); ops = read('ops.json', {}); iso = {v: k for k, v in country_qids().items()}
+    todo = sorted(set(qs) - set(sl), key=lambda q: int(q[1:]))
+    log('sitelinks', len(sl), 'cached,', len(todo), 'to fetch')
+    for part in batched(todo, 150):
+        for q in part: sl[q] = {}
+        for r in sparql('SELECT ?i ?w ?t WHERE { VALUES ?i { %s } ?a schema:about ?i; schema:isPartOf ?w; schema:name ?t . '
+                        'FILTER(STRENDS(STR(?w), ".wikipedia.org/")) }' % ' '.join('wd:' + q for q in part)):
+            q, lang = qid(r['i']), r['w'].split('//')[1].split('.')[0]
+            want = {'en'} | {l.split('-')[0] for c in (ops.get(q) or {}).get('cc', []) for l in LANGS.get(iso.get(c, ''), [])}
+            if lang in want: sl[q][lang] = r['t']
+    write('sitelinks.json', sl)
+    return sl
 
 def thumb(file, px=120):
     """120 px url of a Commons file: an svg's png thumbnail on upload.wikimedia.org; for a bitmap, which Commons will not
@@ -329,7 +400,7 @@ def check_thumbs(files, sample=60, gap=3):
 # ---------------------------------------------------------------- lookups for the build
 _C = {}
 def _load():
-    if _C: return
+    if 'ops' in _C: return
     _C['items'] = read('items.json', {}); _C['ops'] = read('ops.json', {}); _C['hits'] = read('ophits.json', {}); _C['on'] = {}
     _C['places'] = read('places.json', {}); _C['thumbs'] = read('thumbs.json', {}); _C['near'] = {}
 def item(q):
@@ -360,62 +431,132 @@ def nearby(lon, lat, cc, r=500):
 def places(name, cc):
     _load()
     return [tuple(p) for p in _C['places'].get(name + '|' + cc, [])]
+INFRA = {'Q521458', 'Q110408120'}          # railway infrastructure manager, transport infrastructure agency: not who runs the trains
+OPERATING = {'Q249556', 'Q85907346', 'Q17377208', 'Q740752', 'Q2127330', 'Q1412403', 'Q17102188'}      # railway / train operating / transport company ...
+def infra(o):
+    """An infrastructure manager that runs no trains (Adif, Network Rail, RFI, DB InfraGO): never a line's logo."""
+    return bool(o) and bool(set(o['cls']) & INFRA) and not set(o['cls']) & OPERATING
+BAD_LOGO = re.compile(r'(?i)flag|coat[ _]of[ _]arms|wappen|blason|escudo|stemma|герб|\bherb\b|\bmap\b|_map|map[ _.]|karte|карта|схема|'
+                      r'scheme|schema|diagram|\bplan\b|photo|фото|locator|location')
 def logo_url(file):
-    """thumb() of a logo file; '' for none, a file whose url was checked and failed, or a photo given as the logo (a JPEG
-    without "logo" in its name)."""
+    """thumb() of a logo file; '' for none, a file whose url was checked and failed, a photo given as the logo (a JPEG
+    without "logo" in its name), a flag, coat of arms or map."""
     _load()
-    if not file or re.search(r'(?i)\.jpe?g$', file) and not re.search(r'(?i)logo|emblem|symbol|wordmark', file): return ''
+    if not file or re.search(r'(?i)\.jpe?g$', file) and not re.search(r'(?i)logo|emblem|symbol|wordmark', file) or BAD_LOGO.search(file): return ''
     return thumb(file) if _C['thumbs'].get(file, 200) == 200 else ''
 COMPANY = {'Q431289', 'Q4830453', 'Q6881511', 'Q783794', 'Q891723', 'Q270791', 'Q658255', 'Q167037'}     # brand, business, company ...
 RAIL_NAME = re.compile(r'(?i)tren|train|rail|bahn|metro|tram|ferrocarril|ferrovi|železn|zelezn|kolej|vlak|trein|\btog|tåg|juna|vonat|'
-                       r'chemin|comboio|caminho de ferro|поезд|железн|пригород|метро|трамва')
-def railish(o):
+                       r'chemin|comboio|caminho de ferro|поезд|железн|пригород|метро|трамва|электротранс|електротранс|гортранс|鉄道|電鉄|軌道')
+def railish(o, names=()):
     """A rail / public transport company, network or authority (not the city or state that owns one): by class, industry
-    or description, or a company / brand with a rail word in its name ("Trenes Argentinos")."""
+    or description, or a company / brand with a rail word in its name ("Trenes Argentinos"; names: its other labels)."""
     return bool(o) and bool(set(o['cls']) & RAIL_CLS or set(o['ind']) & RAIL_IND or RAIL_DESC.search(o['desc']) or
-                            set(o['cls']) & COMPANY and RAIL_NAME.search(o['en']))
-def op(q):
-    """(English label, logo url) of an operator / network / brand item; the logo of its parent organisation, owner or
-    operator (one level, when that is a transport company too) when it has none of its own."""
+                            set(o['cls']) & COMPANY and RAIL_NAME.search(' '.join([o['en'], *names])))
+def _item(q):
     _load()
     o = _C['ops'].get(q) or {}
-    if o.get('r'): o = _C['ops'].get(o['r']) or o
+    if o.get('r'): q, o = o['r'], _C['ops'].get(o['r']) or o
+    return q, o
+def wikis(q):
+    """[(lang, title)] of the item's Wikipedia articles: English first, then its countries' languages (sitelinks.json)."""
+    _load()
+    if 'sl' not in _C: _C['sl'] = read('sitelinks.json', {}); _C['wiki'] = read('wiki.json', {})
+    sl = dict(_C['sl'].get(q) or {})
+    if 'en' not in sl and _C['wiki'].get(q): sl['en'] = _C['wiki'][q]
+    return sorted(sl.items(), key=lambda x: x[0] != 'en')
+def wkey(lang, title): return title if lang == 'en' else lang + ':' + title
+def own_logo(q):
+    """120 px logo url of an item itself: its Commons logo (P154, else P8972), else the infobox logo of its English, else
+    its native-language Wikipedia article ('' when none is known)."""
+    q, o = _item(q)
+    url = (logo_url(o.get('logo') or o.get('small')) or _ref() and thumb(_C['reflogo'].get(q, ''))) if o else ''      # hand-checked file
+    for lang, t in ([] if url or not o else wikis(q)):
+        url = wiki_logo(wkey(lang, t)) or ''
+        if url: break
+    return url
+def op(q):
+    """(English label, logo url) of an operator / network / brand item: own_logo(), else its parent organisation's, owner's
+    or operator's (one level, when that is a transport company too, not an infrastructure manager)."""
+    q, o = _item(q)
     if not o: return '', ''
-    url = logo_url(o.get('logo') or o.get('small'))
-    for p in ([] if url else o.get('parent', [])):
-        po = _C['ops'].get(p) or {}
-        url = logo_url(po.get('logo') or po.get('small')) if railish(po) else ''
+    url = own_logo(q)
+    for p in ([] if url else o.get('parent', []) + [x for x in [_ref() and _C['refpar'].get(q)] if x]):
+        po = _item(p)[1]
+        url = own_logo(p) if railish(po) and not infra(po) else ''
         if url: break
     return o.get('en', ''), url
 def wiki(q):
-    """The English Wikipedia article of an operator item without a Commons logo, or of its transport-company parent,
-    whose infobox logo the site can show ({name, wiki} in data/logos.json); '' when it has a logo or no article."""
-    _load()
-    if 'wiki' not in _C: _C['wiki'] = read('wiki.json', {})
-    o = _C['ops'].get(q) or {}
-    if o.get('r'): q, o = o['r'], _C['ops'].get(o['r']) or {}
+    """The English Wikipedia article of an operator item without a known logo, or of its transport-company parent, whose
+    infobox logo the site can look up ({name, wiki} in data/logos.json); '' when it has a logo or no article."""
+    q, o = _item(q)
     if not o or op(q)[1]: return ''
-    return _C['wiki'].get(q) or next((_C['wiki'].get(p) for p in o.get('parent', []) if railish(_C['ops'].get(p)) and _C['wiki'].get(p)), '')
-NOT_OP = {'Q16695773', 'Q4167836', 'Q13406463', 'Q4167410', 'Q55488', 'Q928830', 'Q728937', 'Q15079663'}   # project, category, list, disambiguation, station, line
+    en = lambda x: dict(wikis(x)).get('en', '')
+    return en(q) or next((en(p) for p in o.get('parent', []) if railish(_item(p)[1]) and en(p)), '')
+NOT_OP = {'Q16695773', 'Q4167836', 'Q13406463', 'Q4167410', 'Q55488', 'Q928830', 'Q728937', 'Q15079663', 'Q110059964', 'Q21025364'}   # project, category, list, disambiguation, station, line
+REF = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ref', 'operators.json')
+def _ref():
+    if 'ref' not in _C:
+        try: r = json.load(open(REF))
+        except (OSError, ValueError): r = {}
+        _C['ref'] = {k: v if isinstance(v, dict) else {'q': v} for k, v in r.get('names', {}).items() if not k.startswith('_')}
+        _C['refn'] = {nkey(k.rsplit('|', 1)[0]) + ('|' + k.rsplit('|', 1)[1] if '|' in k else ''): v for k, v in _C['ref'].items()}
+        _C['refnat'] = r.get('national', {})
+        _C['refpar'] = dict(r.get('parents', {}), **{v['q']: v['parent'] for v in _C['ref'].values() if v.get('q') and v.get('parent')})
+        _C['reflogo'] = {k: v for k, v in r.get('logos', {}).items() if not k.startswith('_')}
+        _C['refinfra'] = r.get('infra', {})
+    return _C['ref']
+def curated_entry(name, cc=''):
+    """The entry tools/world/ref/operators.json "names" has for this operator string ("name|CC" before "name", then the
+    same without legal form, quotes and case): {q: its item or '', parent: the item whose logo stands in, en: English name}."""
+    r = _ref()
+    return (r.get(name + '|' + cc) or r.get(name) or _C['refn'].get(nkey(name) + '|' + cc) or _C['refn'].get(nkey(name)) or {}) if name else {}
+def curated(name, cc=''):
+    """The item of the curated entry of this operator string (its parent's when it has none on Wikidata), or ''."""
+    e = curated_entry(name, cc)
+    return e.get('q') or e.get('parent') or ''
+def generic(q, o):
+    """A concept rather than an operator ("tram", "commuter rail"): one of the classes above, a train and rail category, or
+    an item of no country and no class."""
+    return q in RAIL_CLS or q in RAIL_IND or q in COMPANY or q in NOT_OP or 'Q16858238' in o['cls'] or not o['cc'] and not o['cls']
+REST = re.compile(r'(?:railways?|railroad|rail|electric|company|co|corporation|corp|limited|ltd|group|gruppe|holding|verkehrsgesellschaft|'
+                  r'verkehrsbetriebe|verkehr|eisenbahn(?:gesellschaft)?|betriebs(?:gesellschaft)?|bahnbetriebs|gmbh|mbh|kg|ag|sa|spa|srl|sp|zoo|'
+                  r'operations?|operating|division|services?|transport(?:ation)?|kabushikigaisha|kabushiki|kaisha|ev|inc|llc|plc|as|ab|oy)*')
+def iso(c):
+    """ISO code of a Wikidata country item."""
+    if 'iso' not in _C: _C['iso'] = {v: k for k, v in read('countries.json', {}).items()}
+    return _C['iso'].get(c, '')
 def op_by_name(name, cc):
-    """The rail operator / network item of this name in this country: among the items labelled so (ophits.json), the
-    transport companies, networks and authorities (railish) of this country or of none, a rail class before a rail
-    industry before a rail description; of a tie the ones with a logo, then the one whose English label is the name,
-    or any when they all show the same logo; '' when still ambiguous."""
+    """The rail operator / network item of this name in this country: the curated one (ref/operators.json), else among the
+    items labelled so (ophits.json) or found by the entity search with a label or alias like it (opsearch.json,
+    oplabels.json), the transport companies, networks and authorities (railish, not infrastructure managers) of this
+    country or of none: a rail class before a rail industry before a rail description, then one with a logo, then the
+    one named by the longest part of the string ("DB Regio AG - Regio Bayern": DB Regio Bayern, not DB Regio), then the
+    one whose English label is the name; of a tie with one logo the first; '' when still ambiguous."""
     _load()
     k = name + '|' + cc
     if k not in _C['on']:
         if 'iso' not in _C: _C['iso'] = {v: k2 for k2, v in read('countries.json', {}).items()}
+        if 'lab' not in _C: _C['lab'] = read('oplabels.json', {}); _C['srch'] = read('opsearch.json', {})
+        q = curated(name, cc)
+        if q: _C['on'][k] = q; return q
+        vk = {nkey(v): len(nkey(v)) for v in op_variants(name) | set(search_variants(name))}
+        nk = nkey(name)
         ok = {}
-        for q in _C['hits'].get(k, []):
-            o = _C['ops'].get(q) or {}
-            if o.get('r'): q, o = o['r'], _C['ops'].get(o['r']) or {}
-            if railish(o) and not set(o['cls']) & NOT_OP and (not o['cc'] or cc in {_C['iso'].get(c) for c in o['cc']}):
-                ok[q] = 3 if set(o['cls']) & RAIL_CLS else 2 if set(o['ind']) & RAIL_IND else 1
-        top = [q for q in ok if ok[q] == max(ok.values())]
-        if len(top) > 1: top = [q for q in top if (_C['ops'][q].get('logo') or _C['ops'][q].get('small'))] or top
-        if len(top) > 1: top = [q for q in top if _C['ops'][q]['en'].lower() in (name.lower(), norm_op(name).lower())] or top
-        if len({_C['ops'][q].get('logo') or _C['ops'][q].get('small') for q in top}) == 1: top = top[:1]     # a company and its network, one logo
+        for src, qs in ((0, _C['hits'].get(k, [])), (1, _C['srch'].get(k, [])), (2, _C['srch'].get(k + '|short', []))):
+            for q in qs:
+                q, o = _item(q)
+                if q in ok or not o or not railish(o, _C['lab'].get(q, [])) or set(o['cls']) & NOT_OP or infra(o) or o['cc'] and cc not in {_C['iso'].get(c) for c in o['cc']} or \
+                        generic(q, o): continue
+                spec = max((vk.get(nkey(x), 0) for x in _C['lab'].get(q, [])), default=0)
+                if src and not spec and (set(o['cls']) & (RAIL_CLS | OPERATING) or set(o['ind']) & RAIL_IND):  # a rail company named like the
+                    spec = max((len(x) for x in map(nkey, _C['lab'].get(q, [])) if len(x) >= 5 and    # string but for company words
+                                (nk.startswith(x) and REST.fullmatch(nk[len(x):]) or x.startswith(nk) and REST.fullmatch(x[len(nk):]))), default=0) and 1
+                if src and not spec: continue                        # a search hit none of whose names is this one
+                ok[q] = (bool(op(q)[1]), o['en'].lower() in (name.lower(), norm_op(name).lower()) and len(name) >= 3,   # a logo, the name
+                         3 if set(o['cls']) & RAIL_CLS else 2 if set(o['ind']) & RAIL_IND else 1, spec)      # as English label, a rail class ...
+        best = max(ok.values(), default=None)
+        top = sorted((q for q in ok if ok[q] == best), key=lambda q: int(q[1:]))
+        if len({op(q)[1] for q in top}) == 1: top = top[:1]          # a company and its network, one logo
         _C['on'][k] = top[0] if len(top) == 1 else ''
     return _C['on'][k]
 
@@ -436,11 +577,18 @@ def fetch_wiki(qs):
 INFOBOX_LOGO = re.compile(r'\|\s*(?:logo|logo_filename|logo_file|logo_image|image_logo)\s*=\s*(?:\[\[)?\s*(?:File:|Image:)?\s*([^|\]\n{}=]+?\.(?:svg|png|jpe?g|gif))|'
                           r'\|\s*image\s*=\s*(?:\[\[)?\s*(?:File:|Image:)?\s*([^|\]\n{}=]*?(?:logo|emblem|wordmark|roundel)[^|\]\n{}=]*?\.(?:svg|png|jpe?g|gif)|'
                           r'(?![^|\]\n{}=]*?(?:map|karte|plan|diagram|route|network|scheme|schema|carte|mapa))[^|\]\n{}=]+?\.svg)', re.I)
-def wapi(params, tries=5):
-    """One English Wikipedia API request, ~1 s after the last, backing off on 429 / 5xx."""
+# the same in the other Wikipedias: their logo fields ("логотип", "logó", "ロゴ" ...) with any file prefix ("Файл:", "Plik:")
+_FILE = r'(?:\[\[)?\s*(?:[^\[\]|:=\n{}<>]{2,16}:)?\s*'
+NATIVE_LOGO = re.compile(r'\|\s*(?:logo|logo_filename|logo_file|logo_image|image_logo|logó|logotyp|logotip|logotipo|logotips|logotipas|logosu|logoja|'
+                         r'логотип|лого|лагатып|логотипи|ロゴ|标志|標誌|标识|標識|로고|لوگو|شعار|לוגו|โลโก้|λογότυπο|emblem|эмблема)\s*=\s*' + _FILE +
+                         r'([^|\]\[\n{}=<>]+?\.(?:svg|png|jpe?g|gif))|\|\s*(?:image|изображение|зображення|obraz|kép|画像|bild|imagen|immagine|'
+                         r'obrázek|slika|imagem|resim|kuva|bilde)\s*=\s*' + _FILE +
+                         r'([^|\]\[\n{}=<>]*?(?:logo|лого|emblem|эмблем|wordmark)[^|\]\[\n{}=<>]*?\.(?:svg|png|jpe?g|gif))', re.I)
+def wapi(params, tries=5, lang='en'):
+    """One Wikipedia API request (English, or the language given), ~1 s after the last, backing off on 429 / 5xx."""
     for k in range(tries):
         time.sleep(max(0, 1.0 - (time.time() - _last[0])))
-        url = 'https://en.wikipedia.org/w/api.php?' + urllib.parse.urlencode(dict(params, format='json', formatversion=2))
+        url = f'https://{lang}.wikipedia.org/w/api.php?' + urllib.parse.urlencode(dict(params, format='json', formatversion=2))
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': UA}), timeout=60) as r: d = json.load(r)
             _last[0] = time.time(); return d
@@ -452,35 +600,44 @@ def wapi(params, tries=5):
             _last[0] = time.time(); log('  retry', type(e).__name__, str(e)[:80]); time.sleep(10 * (k + 1))
     return {}
 def fetch_wikilogos(titles):
-    """wikilogos.json {English Wikipedia title: 120 px url of the logo in its infobox, or ''}: the logos of wiki()
-    articles (often non-free files on en.wikipedia), resolved once here instead of by the site at runtime; 50 articles
-    and 50 files per request (the API answers bursts with 429)."""
+    """wikilogos.json {title: 120 px url of the logo in that Wikipedia article's infobox, or ''}: English titles as they
+    are, others as "lang:title" (wkey); the logos of articles whose items have no Commons logo (often non-free files),
+    resolved once here instead of by the site at runtime; 50 articles and 50 files per request (the API answers bursts
+    with 429); photos, flags, coats of arms and maps are no logo."""
     wl = read('wikilogos.json', {})
     todo = sorted(set(titles) - set(wl) - {''})
     log('wikilogos', len(wl), 'cached,', len(todo), 'to fetch')
     def mapped(q, xs):          # requested title -> the page title the answer uses (normalised, redirected)
         m = {n['from']: n['to'] for n in q.get('normalized', [])}; r = {n['from']: n['to'] for n in q.get('redirects', [])}
         return {x: r.get(m.get(x, x), m.get(x, x)) for x in xs}
-    files, done = {}, []
-    for part in batched(todo, 50):
-        q = wapi({'action': 'query', 'prop': 'revisions', 'rvprop': 'content', 'rvslots': 'main', 'redirects': 1, 'titles': '|'.join(part)}).get('query') or {}
-        text = {p['title']: ((p.get('revisions') or [{}])[0].get('slots') or {}).get('main', {}).get('content', '') for p in q.get('pages', [])}
-        if text: done += part                  # not cached when the request failed
-        for t, pt in mapped(q, part).items():
-            m = INFOBOX_LOGO.search(text.get(pt, '')[:15000])        # the lead infobox, not a template further down
-            if m: files[t] = 'File:' + next(g for g in m.groups() if g).strip()
-    url = {}
-    for part in batched(sorted(set(files.values())), 50):
-        q = wapi({'action': 'query', 'prop': 'imageinfo', 'iiprop': 'url', 'iiurlwidth': 120, 'titles': '|'.join(part)}).get('query') or {}
-        got = {p['title']: (p.get('imageinfo') or [{}])[0].get('thumburl', '').split('?')[0].replace('//thumb.wikimedia.org/', '//upload.wikimedia.org/')
-               for p in q.get('pages', [])}
-        url.update({f: got.get(pt, '') for f, pt in mapped(q, part).items()})
-    for t in done: wl[t] = url.get(files.get(t), '')
-    write('wikilogos.json', wl); log('wikilogos', sum(1 for v in wl.values() if v), 'of', len(wl), 'with a logo')
+    bylang = defaultdict(list)
+    for t in todo:
+        m = re.match(r'([a-z]{2,3}(?:-[a-z]+)?):(.+)$', t)
+        bylang[m.group(1) if m else 'en'].append((t, m.group(2) if m else t))
+    for lang, items in sorted(bylang.items()):
+        files, done, back = {}, [], dict((b, a) for a, b in items)
+        for part in batched([b for a, b in items], 50):
+            q = wapi({'action': 'query', 'prop': 'revisions', 'rvprop': 'content', 'rvslots': 'main', 'redirects': 1, 'titles': '|'.join(part)}, lang=lang).get('query') or {}
+            text = {p['title']: ((p.get('revisions') or [{}])[0].get('slots') or {}).get('main', {}).get('content', '') for p in q.get('pages', [])}
+            if text: done += part                  # not cached when the request failed
+            for t, pt in mapped(q, part).items():
+                m = (INFOBOX_LOGO if lang == 'en' else NATIVE_LOGO).search(text.get(pt, '')[:15000])    # the lead infobox, not a template further down
+                f = next((g for g in m.groups() if g), '').strip() if m else ''
+                if f and not BAD_LOGO.search(f) and not (re.search(r'(?i)\.jpe?g$', f) and not re.search(r'(?i)logo|emblem|symbol|wordmark|лого', f)):
+                    files[t] = 'File:' + f
+        url = {}
+        for part in batched(sorted(set(files.values())), 50):
+            q = wapi({'action': 'query', 'prop': 'imageinfo', 'iiprop': 'url', 'iiurlwidth': 120, 'titles': '|'.join(part)}, lang=lang).get('query') or {}
+            got = {p['title']: (p.get('imageinfo') or [{}])[0].get('thumburl', '').split('?')[0].replace('//thumb.wikimedia.org/', '//upload.wikimedia.org/')
+                   for p in q.get('pages', [])}
+            url.update({f: got.get(pt, '') for f, pt in mapped(q, part).items()})
+        for t in done: wl[back[t]] = url.get(files.get(t), '')
+        write('wikilogos.json', wl); log('  wikilogos', lang, len(items), 'articles,', sum(1 for t in done if url.get(files.get(t))), 'logos')
+    log('wikilogos', sum(1 for v in wl.values() if v), 'of', len(wl), 'with a logo')
     return wl
 def wiki_logo(title):
-    """120 px url of the infobox logo of an English Wikipedia article (wikilogos.json): '' when it has none, None when
-    it was not looked up."""
+    """120 px url of the infobox logo of a Wikipedia article (wikilogos.json; wkey(lang, title)): '' when it has none,
+    None when it was not looked up."""
     if 'wl' not in _C: _C['wl'] = read('wikilogos.json', {})
     return _C['wl'].get(title)
 
@@ -508,11 +665,71 @@ def default_operator(cc):
     return tuple(_C['nat'].get(cc, ['', ''])[:2])
 
 # ---------------------------------------------------------------- run
+def logo_titles(qs):
+    """wkey()s of the Wikipedia articles of these items and their transport-company parents that have no Commons logo."""
+    _C.clear(); out = set()
+    for q in qs:
+        q, o = _item(q)
+        for x in [q] + (o or {}).get('parent', []):
+            x, xo = _item(x)
+            if xo and (x == q or railish(xo)) and not logo_url(xo.get('logo') or xo.get('small')): out.update(wkey(l, t) for l, t in wikis(x))
+    return out
+def hand_titles():
+    """The English articles of data/logos.json's hand-checked {name, wiki} logos (assemble.py resolves them to urls)."""
+    f = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'data', 'logos.json')
+    return {v['wiki'] for v in (json.load(open(f)) if os.path.exists(f) else {}).values() if v.get('wiki') and not v.get('url')}
+def fetch_operators(rels, nodes, full, country_code):
+    """The operator / network / brand items of the lines (their wikidata tags), the items their names without one stand
+    for (exact labels, else the entity search; the curated ref/operators.json), the parents of those, their Wikipedia
+    articles and the logos of those articles' infoboxes; the national operators. Returns the items used."""
+    import english
+    qs, pairs = set(), set()      # operator / network / brand items of the lines, and names without one
+    for r in rels:
+        t = r['tags']
+        if t.get('type') == 'route' and t.get('route') not in english.MODES: continue
+        cc = country_code(*r['center']) if r.get('center') else ''
+        for k in OPKEYS:
+            qs.update(q.strip() for q in (t.get(k + ':wikidata') or '').split(';') if re.fullmatch(r'Q\d+', q.strip()))
+            for v in {(t.get(k) or '').split(';')[0].strip(), (t.get(k + ':en') or '').split(';')[0].strip()} - {''}:
+                if cc: pairs.add((v, cc))
+    stn = defaultdict(list)       # the operators station nodes name (for the lines that name none): 3+ nodes of a country
+    for lon, lat, t in nodes.values():
+        v = (t.get('operator') or '').split(';')[0].strip()
+        if v and english.stationish(t): stn[v].append((lon, lat))
+    for v, pts in stn.items():
+        if len(pts) >= 3: pairs |= {(v, cc) for cc, n in Counter(country_code(*p) for p in pts[::max(1, len(pts) // 30)]).items() if cc and n >= 3}
+    if full:
+        C = [c[0] for c in full['countries']]
+        for l in full['lines']:
+            if l[13]: pairs.add((l[13], C[l[12]]))
+            if l[14].startswith('wd:'): qs.add(l[14][3:])
+    _C.clear(); _ref()
+    china = json.load(open(REF)).get('china', {}) if os.path.exists(REF) else {}
+    ref = ({v.get(k) for v in _C['ref'].values() for k in ('q', 'parent')} | set(_C['refpar'].values()) | {v['q'] for v in _C['refnat'].values()} | set(_C['reflogo']) |
+           {v['q'] for v in _C['refinfra'].values()} |
+           {x for v in china.values() for x in ([v] if isinstance(v, str) else v) if re.fullmatch(r'Q\d+', x)}) - {'', None}
+    fetch_ops(qs | ref)
+    hits = fetch_opnames(pairs)
+    fetch_labels({q for v in hits.values() for q in v}); _C.clear()
+    srch = fetch_search({(n, cc) for n, cc in pairs if not op_by_name(n, cc)})
+    fetch_ops({q for v in srch.values() for q in v}); fetch_labels({q for v in srch.values() for q in v}); _C.clear()
+    srch = fetch_search({(n, cc) for n, cc in pairs if not op_by_name(n, cc) and len(norm_op(n).split()) > 1}, short=True)
+    fetch_ops({q for v in srch.values() for q in v}); fetch_labels({q for v in srch.values() for q in v}); _C.clear()
+    used = (qs | ref | {op_by_name(n, cc) for n, cc in pairs}) - {''}
+    ops = read('ops.json', {})
+    used |= {ops[q]['r'] for q in used if (ops.get(q) or {}).get('r')}
+    fetch_ops({p for q in used for p in (ops.get(q) or {}).get('parent', [])}); ops = read('ops.json', {})
+    fetch_sitelinks({x for q in used for x in [q] + (ops.get(q) or {}).get('parent', [])})
+    fetch_wiki(used); _C.clear()
+    fetch_wikilogos(logo_titles(used) | hand_titles()); _C.clear()
+    national(rels, country_code)
+    return used
+
 def main():
     args = [a for a in sys.argv[1:]]
     if args[:1] == ['wikilogos']:          # wikidata.py wikilogos <network.json | full.json> ...: the logo keys the lines use
         keys = {l[14][3:] for f in args[1:] for l in json.load(open(f))['lines'] if l[14].startswith('wd:')}
-        return fetch_wikilogos({wiki(q) for q in keys})
+        fetch_sitelinks(keys); return fetch_wikilogos(logo_titles(keys) | hand_titles())
     steps = [a for a in args if a in ('classes', 'items', 'near', 'places', 'ops', 'logos', 'summary')] or \
             ['classes', 'items', 'near', 'places', 'ops', 'logos', 'summary']
     files = [a for a in args if a not in steps]
@@ -532,33 +749,9 @@ def main():
     log('non-Latin station nodes', len(need), dict(ccs.most_common()))
     if 'near' in steps: fetch_near([cc for cc, k in ccs.most_common() if cc not in ('CN', 'HK', 'MO') and k >= 20])
     if 'places' in steps: fetch_places({(n, cc) for n, cc in names if n and not latin(n)})
-    if 'ops' in steps or 'logos' in steps:
-        qs, pairs = set(), set()      # operator / network / brand items of the lines, and names without one
-        for r in rels:
-            t = r['tags']
-            if t.get('type') == 'route' and t.get('route') not in english.MODES: continue
-            cc = country_code(*r['center']) if r.get('center') else ''
-            for k in OPKEYS:
-                qs.update(q.strip() for q in (t.get(k + ':wikidata') or '').split(';') if re.fullmatch(r'Q\d+', q.strip()))
-                if not t.get(k + ':wikidata'):
-                    for v in {(t.get(k) or '').split(';')[0].strip(), (t.get(k + ':en') or '').split(';')[0].strip()} - {''}:
-                        if cc: pairs.add((v, cc))
-        if full:
-            C = [c[0] for c in full['countries']]
-            for l in full['lines']:
-                if l[13]: pairs.add((l[13], C[l[12]]))
-                if l[14].startswith('wd:'): qs.add(l[14][3:])
-        fetch_ops(qs)
-        hits = fetch_opnames(pairs); _C.clear()
-        used = (qs | {op_by_name(*k.rsplit('|', 1)) for k in hits}) - {''}
-        ops = read('ops.json', {})
-        fetch_ops({p for q in used for p in (ops.get(q) or {}).get('parent', [])}); _C.clear()
-        ops = read('ops.json', {})
-        fetch_wiki({x for q in used for x in [q, (ops.get(q) or {}).get('r')] + (ops.get(q) or {}).get('parent', []) if x}); _C.clear()
-        national(rels, country_code)
+    if 'ops' in steps or 'logos' in steps: used = fetch_operators(rels, nodes, full, country_code)
     if 'logos' in steps:
         ops = read('ops.json', {})
-        used |= {(ops.get(q) or {}).get('r') for q in used} - {'', None}
         files = {(ops.get(p) or {}).get('logo') or (ops.get(p) or {}).get('small') for q in used for p in [q] + (ops.get(q) or {}).get('parent', [])}
         check_thumbs(files - {'', None})
     if 'summary' in steps: summary()

@@ -8,7 +8,9 @@ Lines
             when a route has no master. Stops come from the route members (stop / platform roles),
             snapped to the station node they belong to.
   intercity route=railway relations (China maps each railway line as one). Stops are the
-            passenger stations on the line's track (within 150 m), ordered along the track.
+            passenger stations on the line's track (within 150 m), ordered along the track, and the
+            relation's station members on its own open track (1.5 km). A line partly built becomes one
+            line per open section (track pieces over 25 km apart): "川藏铁路（温江—雅安）".
             Relations that only map the track of urban lines (Hong Kong's MTR) are skipped.
 Stations are railway=station/halt/tram_stop nodes, or public_transport=station nodes of a rail mode:
 bus stations, reserved and unbuilt stations are not. Station, line and city records are documented in curate.py.
@@ -235,6 +237,40 @@ def order_stops(nids):
                     order[a + 1:b + 1] = order[a + 1:b + 1][::-1]; improved = True
     return [nids[i] for i in order]
 
+def track_xy(ways, step=1):
+    P = np.array([p for w in ways for p in WAYS[w][1][::step]] or [[1e7, 1e7]], float)
+    return P * [111320 * math.cos(math.radians(32)), 110540]
+def sections(ways, stops):
+    """A line partly built (or mapped in pieces) as its open sections: the pieces of its track (ways sharing nodes; pieces
+    within 25 km of each other are one section) with 2+ of its stops ->
+    [(ways, stops)] in stop order. Stops of a section with one stop are left out (a planned line's station on another line)."""
+    par = {}
+    def f(x):
+        while par.get(x, x) != x: par[x] = par.get(par[x], par[x]); x = par[x]
+        return x
+    for w in ways:
+        r = list(WAYS[w][2]); a = f(r[0])
+        for n in r[1:]:
+            b = f(n)
+            if a != b: par[b] = a
+    piece = [f(WAYS[w][2][0]) for w in ways]
+    byp = defaultdict(list)
+    for w, p in zip(ways, piece): byp[p].append(w)
+    if len(byp) == 1: return [(ways, stops)]
+    from scipy.spatial import cKDTree        # pieces within 25 km of each other are one section: a gap the relation leaves
+    T = {p: cKDTree(track_xy(ws, 2)) for p, ws in byp.items()}      # in a hub is routed along the rail network by the tiles
+    ks = list(T)
+    for i, p in enumerate(ks):
+        for q in ks[i + 1:]:
+            if f(p) != f(q) and T[p].query(T[q].data, distance_upper_bound=25000)[0].min() <= 25000: par[f(q)] = f(p)
+    sec = defaultdict(list)
+    for w, p in zip(ways, piece): sec[f(p)].append(w)
+    if len(sec) == 1: return [(ways, stops)]
+    P = {k: track_xy(ws, 2) for k, ws in sec.items()}
+    at = {s: min(P, key=lambda k: np.hypot(*(P[k] - xy(*NODES[s][:2])).T).min()) for s in stops}
+    out = [(sec[k], [s for s in stops if at[s] == k]) for k in dict.fromkeys(at[s] for s in stops)]
+    return [(ws, ss) for ws, ss in out if len(ss) >= 2] or [(ways, stops)]
+
 # ---------------------------------------------------------------- lines
 lines, geometry = [], []      # geometry[i] = list of way ids
 
@@ -395,7 +431,9 @@ for rid, r in RELS.items():
     near_ways = [w for w in ways if not slow(WAYS[w][0])] if kind == 'h' else ways
     way_set = set(ways)
     stops = [snap_stop(ref) for typ, ref, role in r['members'] if typ == 'n' and ref in NODES]
-    stops = [n for n in stops if n is not None and n in NODES and is_passenger_station(NODES[n][2]) and near_open_track(*NODES[n][:2])]
+    TP = track_xy(ways, 2)            # station members on the line's own open track (a line partly built lists its planned stations)
+    stops = [n for n in stops if n is not None and n in NODES and is_passenger_station(NODES[n][2]) and near_open_track(*NODES[n][:2])
+             and np.hypot(*(TP - xy(*NODES[n][:2])).T).min() <= 1500]
     for nid in cand:
         lon, lat, st = NODES[nid]
         if not is_passenger_station(st) or is_urban_station(st): continue
@@ -409,17 +447,24 @@ for rid, r in RELS.items():
         if nm not in byname or NODES[nid][2].get('railway') == 'station': byname[nm] = nid
     stops = list(byname.values())
     stops = order_stops(stops)
-    # length along the stops (summing ways would count both tracks of double-track lines)
-    along = sum(float(np.hypot(*(xy(*NODES[a][:2]) - xy(*NODES[b][:2])))) for a, b in zip(stops, stops[1:])) * 1.06
-    km = round(along / 1000) if len(stops) >= 2 else round(L_m / 2000)
-    # an old line upgraded to 200 km/h keeps its dense local stations (京哈线, (原)浙赣线, 汉丹铁路): conventional
-    def very_fast(t): m = re.match(r'\d+', t.get('maxspeed') or ''); return m is not None and int(m.group()) >= 250
-    if kind == 'h' and not re.search(r'高速|高铁|客专|客运专线|城际', name) and len(stops) >= 20 and km < 18 * len(stops) \
-            and sum(way_len(w) for w in ways if very_fast(WAYS[w][0])) < 0.5 * L_m:
-        kind = 'r'
-    lines.append([kind, name, en_of(t), t.get('ref', ''), '', -1, [station_for(s) for s in stops], [], 0, km, 0, '',
-                  t.get('network', ''), t.get('operator', '')])
-    geometry.append(ways)
+    secs = sections(ways, stops) if len(stops) >= 2 else [(ways, stops)]
+    for ways, stops in secs:          # one line per open section, named "川藏铁路（天府—雅安）" when there are several
+        # length along the stops (summing ways would count both tracks of double-track lines)
+        along = sum(float(np.hypot(*(xy(*NODES[a][:2]) - xy(*NODES[b][:2])))) for a, b in zip(stops, stops[1:])) * 1.06
+        km = round(along / 1000) if len(stops) >= 2 else round(L_m / 2000)
+        # an old line upgraded to 200 km/h keeps its dense local stations (京哈线, (原)浙赣线, 汉丹铁路): conventional
+        def very_fast(t): m = re.match(r'\d+', t.get('maxspeed') or ''); return m is not None and int(m.group()) >= 250
+        k = kind
+        if kind == 'h' and not re.search(r'高速|高铁|客专|客运专线|城际', name) and len(stops) >= 20 and km < 20 * len(stops) \
+                and sum(way_len(w) for w in ways if very_fast(WAYS[w][0])) < 0.5 * sum(way_len(w) for w in ways):
+            k = 'r'
+        zh, en = name, en_of(t)
+        if len(secs) > 1:
+            a, b = NODES[stops[0]][2], NODES[stops[-1]][2]
+            zh, en = f'{name}（{stn_name(a)}—{stn_name(b)}）', f'{en} ({en_of(a) or stn_name(a)}–{en_of(b) or stn_name(b)})' if en else ''
+        lines.append([k, zh, en, t.get('ref', ''), '', -1, [station_for(s) for s in stops], [], 0, km, 0, '',
+                      t.get('network', ''), t.get('operator', '')])
+        geometry.append(ways)
 
 # drop unnamed stops, and intercity stops without a Chinese name (bus stands, taxi ranks and
 # stray tags that OSM files as stations)

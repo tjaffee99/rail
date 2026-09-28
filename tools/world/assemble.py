@@ -64,6 +64,24 @@ def china_operator(l, C, logos):
     m = re.fullmatch(r'.*[一-鿿）)]\s+([A-Za-z][\x20-\x7e’]*)', net or opr)    # "山頂纜車有限公司 Peak Tramways Company Limited"
     op = m.group(1) if m else net or opr
     return op, next((k for k, v in logos.items() if v.get('name') == op), '')
+def china_ref(names, logos):
+    """The logo key tools/world/ref/operators.json "china" gives the first of these names (the operator, the network and
+    operator tags, "City|kind") that it maps: a data/logos.json key, else the first of its Wikidata items with a known
+    logo ("wd:Q…"); '' when none."""
+    import wikidata as wd
+    if 'china' not in _REF: _REF['china'] = json.load(open(wd.REF)).get('china', {}) if os.path.exists(wd.REF) else {}
+    for n in names:
+        v = _REF['china'].get(n) if n else None
+        for x in ([v] if isinstance(v, str) else v or []):
+            if has_logo(x, logos): return x
+            if re.fullmatch(r'Q\d+', x) and wd.op(x)[1]: return 'wd:' + x
+    return ''
+_REF = {}
+def has_logo(key, logos):
+    """A hand-checked logo with a url, or whose English article's infobox logo is known."""
+    import wikidata as wd
+    v = logos.get(key) or {}
+    return bool(v.get('url') or v.get('wiki') and wd.wiki_logo(v['wiki']))
 
 def china():
     """China network (v1 records) -> v2 records, hidden lines None. Stations keep the country the pipeline
@@ -76,10 +94,17 @@ def china():
     for l in L:
         if l[10]: lines.append(None); continue
         op, key = china_operator(l, C, logos)
+        if not has_logo(key, logos):   # no hand-checked logo: the curated one of its system, operator, tags or city and kind
+            key = china_ref([key, op, l[12] if len(l) > 12 else '', l[13] if len(l) > 13 else '', f"{C[l[5]][1] if 0 <= l[5] < len(C) else ''}|{l[0]}"], logos) or key
+            if key and not op: op = logos[key]['name'] if key in logos else wikidata_name(key)
         lines.append(list(l[:12]) + ['', op, key])
     stations = [list(s[:8]) + [s[8] if len(s) > 8 else ''] for s in S]
-    cities = [list(c[:6]) + ['', c[1] if c[1] in logos else ''] for c in C]
+    cities = [list(c[:6]) + ['', c[1] if has_logo(c[1], logos) else china_ref([c[1]], logos) or (c[1] if c[1] in logos else '')] for c in C]
     return lines, stations, cities
+
+def wikidata_name(key):
+    import wikidata as wd
+    return wd.op(key[3:])[0] if key.startswith('wd:') else ''
 
 def world(path):
     d = json.load(open(path))
@@ -250,6 +275,8 @@ def main():
     names = defaultdict(Counter)
     for l in L2: names[l[14]][l[13]] += 1
     import wikidata as wd
+    for v in logos.values():       # hand-checked {name, wiki}: the article's infobox logo when it was looked up
+        if v.get('wiki') and not v.get('url') and wd.wiki_logo(v['wiki']): v['url'] = wd.wiki_logo(v['wiki'])
     keys = sorted(k for k in set(names) | {c[7] for c in C2} if k.startswith('wd:'))
     for k in keys:
         en, url = wd.op(k[3:]); wiki = '' if url else wd.wiki(k[3:])

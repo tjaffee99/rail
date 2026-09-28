@@ -19,7 +19,7 @@ City record: [zh, en, lon, lat, population, urban lines]
 import json, re, sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 import jieba, pypinyin
-from names import LINE_EN, LINE_ZH, URBAN, STATION_EN, FREIGHT, FREIGHT_AUDIT, NOT_PUBLIC
+from names import LINE_EN, LINE_ZH, URBAN, STATION_EN, FREIGHT, FREIGHT_AUDIT, NOT_PUBLIC, NO_PASSENGER
 FREIGHT = list(FREIGHT) + FREIGHT_AUDIT
 jieba.setLogLevel(60)
 
@@ -116,7 +116,7 @@ def complete(l):
 for i, l in enumerate(L):
     if l[10]: continue
     if l[1] in LINE_ZH: l[1] = LINE_ZH[l[1]]
-    zh, en = l[1], l[2]
+    zh, en = re.sub(r'（[^（）]+—[^（）]+）$', '', l[1]), l[2]       # a section of a line (build_network.py sections()) as its line
     # lines mostly outside China (North Korea's Pyongui and Hambuk lines) belong to the world data
     ccs = [S[x][8] for x in l[6]]
     abroad = ccs and sum(c not in ('CN', 'HK', 'MO') for c in ccs) > 0.5 * len(ccs)
@@ -124,6 +124,8 @@ for i, l in enumerate(L):
         hide(i, 'outside China'); continue
     if (zh or en) in NOT_PUBLIC:
         hide(i, NOT_PUBLIC[zh or en]); continue
+    if l[0] in 'hr' and zh in NO_PASSENGER:
+        hide(i, NO_PASSENGER[zh]); continue
     if l[0] in URBAN_K and JUNK.search(zh + l[13]) and not zh.startswith(PUBLIC_TOURIST):
         hide(i, 'closed, trackless, private or tourist line'); continue
     base = re.sub(r'^\(原\)', '', re.sub(r'(重载铁路|铁路|线)$', '', zh))
@@ -196,21 +198,21 @@ def two_opt(p):
                     p[a + 1:b + 1] = reversed(p[a + 1:b + 1]); improved = True
     return p
 def or_opt(p):
-    """Move runs of 1-3 stops (either way round) to wherever they fit best."""
+    """Move runs of 1-3 stops (either way round) to wherever they fit best (first improvement; costs by difference)."""
     p = list(p); improved = True
-    def cost(q): return plen(q)
+    def d(a, b): return dist(a, b) if a is not None and b is not None else 0.0
     while improved:
         improved = False
-        base = cost(p)
         for k in (1, 2, 3):
             for a in range(len(p) - k + 1):
                 seg = p[a:a + k]; rest = p[:a] + p[a + k:]
+                pa, na = (p[a - 1] if a else None), (p[a + k] if a + k < len(p) else None)
+                gain = d(pa, seg[0]) + d(seg[-1], na) - d(pa, na)
                 for b in range(len(rest) + 1):
                     if b == a: continue
+                    x, y = (rest[b - 1] if b else None), (rest[b] if b < len(rest) else None)
                     for sg in (seg, seg[::-1]):
-                        q = rest[:b] + sg + rest[b:]
-                        c = cost(q)
-                        if c < base - 1e-9: p, base, improved = q, c, True; break
+                        if d(x, sg[0]) + d(sg[-1], y) - d(x, y) < gain - 1e-9: p, improved = rest[:b] + sg + rest[b:], True; break
                     if improved: break
                 if improved: break
             if improved: break
@@ -230,7 +232,7 @@ def shortest(seq):
     return resequence(best)
 reordered = 0
 for l in L:
-    if l[10] or l[8] or len(l[6]) < 4 or len(l[6]) > 150: continue
+    if l[10] or l[8] or len(l[6]) < 4 or len(l[6]) > 300: continue
     seq = list(dict.fromkeys(l[6]))
     local = resequence(seq)                   # fixes local reversals and strays, keeps OSM's overall order
     if (plen(seq) - plen(local)) * 111 > 0.3: seq = local
@@ -290,6 +292,8 @@ for i, l in enumerate(L):
         l[2] = l[2].replace('line', 'Line') if re.fullmatch(r'.* line', l[2]) else l[2]
         l[11] = ''
     else:
+        sec = re.fullmatch(r'(.+)（(.+)—(.+)）', zh)      # an open section of a line partly built (build_network.py sections())
+        if sec: zh, l[2] = sec.group(1), re.sub(r'\s*\([^()]*\)$', '', l[2])
         if zh in LINE_EN:
             l[2] = LINE_EN[zh]
         elif BLOB.search(l[2]) or not l[2] or re.search(r'[一-鿿]', l[2]):
@@ -300,6 +304,7 @@ for i, l in enumerate(L):
         l[2] = l[2].replace('_', ' ').replace(' - ', '–').replace('-', '–').replace('Highspeed', 'High-Speed').replace('Guanzhou', 'Guangzhou') \
                    .replace('High Speed', 'High-Speed').replace('high-speed railway', 'High-Speed Railway') \
                    .replace('High–speed', 'High-Speed').replace('High–Speed', 'High-Speed').replace('intercity railway', 'Intercity Railway')
+        if sec and l[6]: l[2] += f' ({S[l[6][0]][1] or S[l[6][0]][0]}–{S[l[6][-1]][1] or S[l[6][-1]][0]})'
         lab = l[2]
         lab = re.sub(r'High-Speed (?:Railway|Line)|Passenger (?:Railway|Dedicated Line)|PDL', 'HSR', lab)
         lab = re.sub(r'Intercity (?:Railway|Line)', 'Intercity', lab)

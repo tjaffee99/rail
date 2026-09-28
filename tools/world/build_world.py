@@ -29,8 +29,10 @@ Lines     one line per service: a route_master (unless its name is only an opera
 Fallback  route=railway relations (and timetable / infrastructure relations tagged route=train) where passenger
           services are not mapped: not freight, abandoned or listed, 3+ stations with passenger evidence on their own
           track (more than a public_transport tag where a country's services are mapped), and most of their stations
-          not already served by a service line; a trunk line whose services cover half of it is left out (never shipped
-          in pieces). One on a service's track (80% of it) gives that service its missing stations instead.
+          not already served by a service line; a long line whose services cover half of it (200+ stations or 1500+ km:
+          the Trans-Siberian) or 80% (100+ stations: St Petersburg - Warsaw) is left out, never shipped in pieces; its
+          unserved stations go into the services that call on either side of them. One on a service's track (80% of it)
+          gives that service its missing stations instead; one whose track has a 100+ km hole is a line per piece.
 Kinds     h only for high-speed services (service / highspeed tags, HSR brands, or long-distance products on 250 km/h
           track); s for S-Bahn / RER / commuter / elektrichka (also route=light_rail S-Bahns); m l t f by mode.
 Names     native names cleaned of route descriptions, platform numbers, codes; English (tools/world/english.py): a Latin
@@ -47,7 +49,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 from countries import country_code
 from translit import latin, plain, ja_word, KANA, HAN, HANGUL, CYR, ABJAD, TIFINAGH
-from english import english_station, english_line, english_operator, latinize
+from english import english_station, english_line, english_operator, line_operator, line_values, infra_network, latinize, NOT_OPERATOR
 import wikidata as wd
 
 T0 = time.time()
@@ -238,10 +240,12 @@ class Track:
         for _, Q in pieces[1:]:            # a piece alongside a longer one (the other track of a double line) adds nothing
             idx = NearIdx(np.concatenate([out] + rest), 0.002)
             if (idx.near(Q[::max(1, len(Q) // 50)])[1] < 150).mean() < 0.6: rest.append(Q)
+        jn = []              # the path's segments that join two pieces
         while rest:
             d, j, end, rev = min((metres(*(out[0] if end == 0 else out[-1]), *(Q[-1] if end == 0 else Q[0])), j, end, rev)
                                  for j, P in enumerate(rest) for end in (0, 1) for rev, Q in ((0, P), (1, P[::-1])))
             Q = rest.pop(j); Q = Q[::-1] if rev else Q
+            jn = [i + len(Q) for i in jn] + [len(Q) - 1] if end == 0 else jn + [len(out) - 1]
             out = np.concatenate([Q, out]) if end == 0 else np.concatenate([out, Q])
         k = math.cos(math.radians(float(out[:, 1].mean())))
         seglen = np.hypot(np.diff(out[:, 0]) * k, np.diff(out[:, 1])) * 111195
@@ -250,6 +254,7 @@ class Track:
         self.P = np.concatenate([out[:-1][idx] + (out[1:][idx] - out[:-1][idx]) * f[:, None], out[-1:]])
         cum = np.concatenate([[0], np.cumsum(seglen)])
         self.T = np.concatenate([cum[:-1][idx] + seglen[idx] * f, cum[-1:]]); self.L = float(cum[-1])
+        self.gaps = [(float(cum[i]), float(cum[i + 1])) for i in jn if seglen[i] > 1000]      # stretches no mapped track covers
         self.idx = NearIdx(self.P, 0.005)
     def locate(self, X):
         j, d = self.idx.near(X)
@@ -276,7 +281,7 @@ CATEGORY = (r'(?:(?:пригородн\w*|городск\w*|туристичес
             r'inter-city|interregio|express|expreso|rapid|local|passenger|passenger train|mail|superfast|'
             r'superfast express|express train|mail express|memu|demu|emu|dmu|media distancia|larga distancia|'
             r'cercanías|rodalies|subway|metro|tram|tramway|light rail|monorail|funicular|service|stopping service|'
-            r'regional express|regionalexpress|unknown|unbekannt|train service|railway|railroad|line|linie|linia|'
+            r'regional express|regionalexpress|unknown|unbekannt|train service|railway|railroad|line|linie|linia|navette|shuttle|lanzadera|'
             r'ligne|linea|línea|línia|route|系統|号系統|号線|jr local train|列車|普通|快速|急行|特急|普通列車|火车|火車|列车|기차|열차|قطار|רכבת|'
             r'მატარებელი|գնացք|qatar|qatar\w*|خط|трамвай|трамвайн\w* маршрут|маршрут(?: трамвая)?|троллейбус|'
             r'монорельс|фуникул[её]р|фунікулер|tramvaj|tramvay|tranvía|tranvia|tramvia|straßenbahn|strassenbahn|'
@@ -360,6 +365,9 @@ def generic(n, ts=()):
             (re.search(r'\d', n or '') or all(len(x) <= 3 and x.isupper() for x in code)): return True    # "RE / TER K59", "GR E", "G Train"
     if PRODUCT_NAME.fullmatch(strip_no(n or '')): return True     # a product: "TGV InOui 801A", "Intercity", "Sprinter"
     ops = {first(t.get(k)).lower() for t in ts for k in OPKEYS if t.get(k)} & (OPLIKE or broad())
+    if re.match(r'(?:rete ferroviaria|réseau ferré|red ferroviaria|rail network)\b', s): return True     # a network ("Rete ferroviaria AV d'Italia")
+    parts = re.split(r'\s*[-/&+]\s*', strip_no(n or '').lower())
+    if len(parts) >= 2 and all(p in (OPLIKE or broad()) for p in parts): return True     # operators only: "Renfe-SNCF"
     return (n or '').lower() in ops or s in ops or strip_no(n or '').lower() in ops
 def base_key(n):
     """Name for grouping; a bare route ("Waterloo - Guildford via Epsom") as its unordered ends."""
@@ -371,7 +379,8 @@ def good_ref(r, name=''):
     r = first(r)
     m = re.match(r'(\d\w{0,2}|[A-Z]\d{0,2})\s+\S', r)
     if len(r) > 12 and m: r = m.group(1)      # "1 Холодногірсько-Заводська" -> "1"
-    if len(r) > 12 and not (len(r) <= 20 and r.isascii() and clean_name(name).lower().startswith(r.lower())): return ''    # "Waterloo & City"
+    if len(r) > 12 and not (len(r) <= 20 and r.isascii() and r.lower() in clean_name(name).lower()): return ''    # "Waterloo & City",
+                                                                                            # "Empire Service" of "Amtrak Empire Service"
     if not r or '(' in r or re.search(r'[\u3100-\u312f]', r) or re.search(ARROW + r'|\w\s*[–—]\s*\w', r) or (r == clean_name(name) and not r.isascii()): return ''
     if re.fullmatch(r'(?:[A-Za-zА-Яа-я]{1,5}\s*)?\d{3,6}[A-Za-zА-Яа-я]?(?:\s*[/,]\s*\d{1,6}[A-Za-zА-Яа-я]?)*', r): return ''   # train numbers
     if re.fullmatch(r'\d[Xx]{2}', r) or re.fullmatch(CATEGORY, r, re.I) or PRODUCT_NAME.fullmatch(r): return ''     # Caltrain 1XX, "MEMU", "AVE"
@@ -381,7 +390,7 @@ PLATFORM = (r'(?i)\s*[-–,(.\[]?\s*\b(?:v[íi]a|and[ée]n|track|platform|plataf
             r'spoor|bahnsteig|perron|plattform|spår)\s*\d+[a-z]?(?:\s*(?:[-–/+&,]|and|und|et|y|i)\s*\d+[a-z]?)*\b\)?.*$|'
             r'\s*[-–,(]?\s*\b(?:voie|quai|track|platform|gleis|binario)\s+[A-Z]\d{0,2}\b\)?.*$|\s*\d+番線.*$|\s*站台$')      # "Tours - Voie A1"
 PLATFORM_ONLY = re.compile(r'(?i)(?:v[íi]a|and[ée]n|track|platform|plataforma|gleis|voie|quai|binario|peron|tor|spoor|bahnsteig|perron|spår)'
-                           r'(?:\s*[\dA-Z]{1,3})?')        # a stop named only after its platform ("Voie B"): snapped by distance
+                           r'(?:\s*[\dA-Z]{1,3}(?:\s*(?:bis|ter))?)?')        # a stop named only after its platform ("Voie B", "Voie 2 bis"): snapped by distance
 def stn_name(t):
     """Station name without platform / track / pole numbers, codes and station words: "Central, Platform 9" -> "Central",
     "Atocha - Vía 3" -> "Atocha", "Stop 3: Lincoln Square" -> "Lincoln Square", "ایستگاه راه آهن تهران" -> "تهران"."""
@@ -539,7 +548,8 @@ def active(t):
                 t.get('railway:traffic_mode') == 'freight' or t.get('passenger') == 'no' or t.get('train') == 'no')
 SGRID = Grid(((n, lon, lat) for n, (lon, lat, t) in NODES.items() if stationish(t) and t.get('name')), 0.003)
 STOPGRID = Grid(((n, lon, lat) for n, (lon, lat, t) in NODES.items() if stoplike(t) and not stationish(t) and t.get('name') and
-                 t.get('railway') in ('stop', 'halt') and not dead(t)), 0.003)       # named stop positions (Tren Maya has no stations)
+                 t.get('railway') in ('stop', 'halt') and not dead(t) and not PLATFORM_ONLY.fullmatch(stn_name(t))), 0.003)   # named stop
+                                                                                            # positions (Tren Maya has no stations), not "Voie 1"
 _sn, _mk = {}, {}
 def sname(n):
     if n not in _sn: _sn[n] = stn_name(NODES[n][2])
@@ -587,7 +597,7 @@ FREIGHT_SVC = re.compile(r'freight|güter|\bfret\b|\bgoods\b|cargo|intermodal tr
 FREIGHT_OP = re.compile(r'Ferromex|Ferrosur|KCSM|Kansas City Southern|CPKC|Canadian Pacific|Canadian National|\bCN\b|Union Pacific|\bUP\b|'
                         r'BNSF|CSX|Norfolk Southern|Genesee|Trenes Argentinos Cargas|Belgrano Cargas|Nuevo Central Argentino|\bNCA\b|'
                         r'Ferroexpreso|FEPASA|FCAB|Antofagasta|Rumo\b|\bVLI\b|MRS Log|Transnet Freight|Aurizon|Pacific National|'
-                        r'Arc Infrastructure|Fortescue|Rio Tinto|BHP|COMILOG|\bCBG\b|Vale\b|Freight', re.I)
+                        r'Arc Infrastructure|Fortescue|Rio Tinto|BHP|COMILOG|\bCBG\b|Vale\b|Transnordestina|Freight', re.I)
 LIFECYCLE = ('construction', 'proposed', 'disused', 'abandoned', 'razed', 'demolished', 'removed', 'planned')
 def lifecycle(t):
     """Not open: a lifecycle tag or key prefix, a lifecycle word in the name, or an opening date still to come."""
@@ -599,7 +609,9 @@ def lifecycle(t):
         m = re.fullmatch(r'(\d{1,2})[/.](\d{1,2})[/.](\d{4})', v)
         iso = f'{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}' if m else v[:10]
         if re.match(r'\d{4}', iso) and iso > DATE: return True
-    return False
+    m = re.search(r'\((?:18|19|20)\d\d\s*[-–]\s*((?:18|19|20)\d\d)\)', t.get('name') or '')      # "Trem Azul (1975-1997)"
+    # closed: an end date before this year (Sangritana, 1973; this year's can be a diversion's, on Karlsruhe's tram 1)
+    return bool(m and m.group(1) < DATE[:4] or re.match(r'\d{4}', t.get('end_date') or '') and t['end_date'][:4] < DATE[:4])
 HERITAGE = re.compile(r'museum|musée|museo|muzeum|muzeal|muzeální|museu|музей|museibana|museispårväg|museumslinjen|heritage|vintage|veteran(?!s\b)|'
                       r'histori\w* (?:railway|tram\w*|trolley|train|line|bahn)|histórico|historique|historische|preservation|preserved|nostalg|носталг|'
                       r'parkeisenbahn|park ?railway|kolejka parkowa|parkowa|kleinbahn im|freizeitpark|walt disney world|disneyland railroad|disney parks|'
@@ -634,7 +646,8 @@ def junk(t):
     route's own name, operator, network and brand (and its description when it is of no network: Karlsruhe's tram E
     notes "Einrücker abends"), not in the names of its stops; depot and airside words in the whole name."""
     txt = ' '.join([own_name(t.get('name')), own_name(t.get('name:en'))] + [t.get(k, '') for k in ('operator', 'network', 'brand', 'official_name')] +
-                   ([t.get('description', '')] if not t.get('network') else []))
+                   ([t.get('description', '')] if not t.get('network') else []) + ([t['ref']] if len(t.get('ref', '')) > 12 else []))   # ref
+                   # as a name: "Детская Восточно-Сибирская железная дорога"
     full = txt + ' ' + t.get('name', '') + ' ' + t.get('name:en', '')
     svc = {s.strip() for s in (t.get('service') or '').split(';')}
     if t.get('usage') == 'tourism' or t.get('tourism') == 'attraction': svc.add('tourism')
@@ -724,7 +737,8 @@ DENY = {13035324, 5928466, 7826308, 7826309, 8530208, 15342820}   # dead systems
 BAD_MASTER = set()          # routes of closed / listed route masters, and of junk ones when they name no operator of their own
 for rid, m in RELS.items():   # (an airside mover's: unless they say they run landside, as Changi's Skytrain between terminals)
     if m['tags'].get('type') != 'route_master': continue
-    bad, why = lifecycle(m['tags']) or rid in DENY or rid in DROP, junk(m['tags'])
+    # (a master's end_date can be its timetable's: Toulouse metro)
+    bad, why = lifecycle({k: v for k, v in m['tags'].items() if k != 'end_date'}) or rid in DENY or rid in DROP, junk(m['tags'])
     if bad or why:
         BAD_MASTER.update(x for typ, x, role in m['members'] if typ == 'r' and x in RELS and (bad or not any(RELS[x]['tags'].get(k) for k in (
             'operator', 'network')) or why == 'airside' and not re.search(r'(?i)landside', RELS[x]['tags'].get('name', ''))))
@@ -862,6 +876,11 @@ for rid, r in ROUTES.items():
         stops = [x for i, x in enumerate(stops) if (rid, x) not in GUESSED or dist_to_ways(ways, *NODES[x][:2]) <= (
             300 if i in (0, len(stops) - 1) else min(nearest_main(x)[0] + 30, 300))]      # a terminus: the track may end short of it
     exp = mode == 'train' and expressish(t)
+    if mode != 'train' and len(stops) >= 4:      # an urban route that lists the stations of a railway far away too (Teresina's
+        g = [metres(*NODES[a][:2], *NODES[b][:2]) for a, b in zip(stops, stops[1:])]       # light rail, to Parnaíba): its
+        cut = [k + 1 for k, d in enumerate(g) if d > max(20000, 8 * float(np.percentile(g, 25)))]  # densest run of 3+ stops
+        runs = [(x, y) for x, y in zip([0] + cut, cut + [len(stops)]) if y - x >= 3]
+        if cut and runs: x, y = min(runs, key=lambda r: float(np.median(g[r[0]:r[1] - 1]))); stops = stops[x:y]; nfill['urban far stops'] += 1
     loop = t.get('roundtrip') == 'yes' or len(stops) > 3 and (stops[0] == stops[-1] or metres(*NODES[stops[0]][:2], *NODES[stops[-1]][:2]) < 300)
     tr = (track(ways) if rid not in DBG else Track(ways, True)) if ways and (len(stops) >= 3 or len(stops) < 2 or mode == 'train') else None
     cand, bst = [], []
@@ -883,7 +902,10 @@ for rid, r in ROUTES.items():
             if long and len(stops) <= 3: exp = True
             if not exp and (len(stops) < 2 or len(stops) <= 3 and len(cn) >= len(stops) + 2 or local and len(stops) < 0.5 * len(cn)):
                 keep = [s for s in stops if s not in set(cn)]
-                if len(stops) >= 2: nfill['filled'] += 1
+                if len(stops) >= 2:          # an urban line: not far past its listed end stops (Teresina's light rail,
+                    nfill['filled'] += 1       # whose relation runs on along the railway to Parnaíba)
+                    (lo, hi), ed = tr.locate([NODES[stops[0]][:2], NODES[stops[-1]][:2]]); lo, hi = min(lo, hi), max(lo, hi); mg = max(5000, 0.5 * (hi - lo))
+                    if mode != 'train' and tr.L > 60000: cn = [n for n, x in cand if lo - mg <= x <= hi + mg]
                 merged = cn + keep
                 tt, dd = tr.locate([NODES[n][:2] for n in merged])
                 stops = [n for n, _, d in sorted(zip(merged, tt.tolist(), dd.tolist()), key=lambda a: a[1]) if d <= 500 or n in cn]
@@ -895,6 +917,8 @@ for rid, r in ROUTES.items():
                 A, B = NODES[stops[0]][:2], NODES[stops[-1]][:2]; AB = metres(*A, *B)
                 pre = [(n, x) for n, x in cand if (x < a - 300 if up else x > a + 300) and n not in have and metres(*NODES[n][:2], *B) > AB]
                 post = [(n, x) for n, x in cand if (x > b + 300 if up else x < b - 300) and n not in have and metres(*NODES[n][:2], *A) > AB]
+                if mode != 'train' and tr.L > 60000:     # an urban relation running on far past its end stops (Teresina): not past half its length
+                    mg = max(5000, 0.5 * abs(b - a)); pre = [p for p in pre if abs(p[1] - a) <= mg]; post = [p for p in post if abs(p[1] - b) <= mg]
                 pre.sort(key=lambda p: p[1], reverse=not up); post.sort(key=lambda p: p[1], reverse=not up)
                 if exp:          # an express: only a station at the very end of its track
                     pre = pre[:1] if pre and min(pre[0][1], tr.L - pre[0][1]) < 2000 else []
@@ -1110,8 +1134,32 @@ for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' a
             ja = min(main, key=lambda s: metres(*stations[s][2:4], *a)); jb = min(main, key=lambda s: metres(*stations[s][2:4], *b))
             branches = [[ja] + o] if metres(*stations[ja][2:4], *a) <= metres(*stations[jb][2:4], *b) else [[jb] + o[::-1]]
     if len(main) < 3: continue
-    if not anchor and (len(main) > 200 or tr.L > 1.5e6) and served >= 0.5:     # a trunk line (Trans-Siberian) its services mostly
-        nfb['trunk served'] += 1; drop_log('fallback trunk served', rid, t.get('name')); continue     # cover: whole or not at all
+    g = [metres(*stations[x][2:4], *stations[y][2:4]) for x, y in zip(main, main[1:])]
+    if not anchor and not branches and len(g) >= 5 and np.median(g) < 5000:      # an end station far out past a dense line (DL&W
+        while len(main) > 3 and g[-1] > max(50000, 20 * np.median(g)): main, g = main[:-1], g[:-1]    # Mainline: Hackettstown, then
+        while len(main) > 3 and g[0] > max(50000, 20 * np.median(g)): main, g = main[1:], g[1:]       # Scranton's trolley museum)
+    # a long line its services mostly cover (Trans-Siberian; St Petersburg - Warsaw, services at 80%+ of its 100+ stations): whole or
+    # not at all (the Czech corridors, services at 3/4 of their stations, stay: their local stops are on no other line); its stations
+    # no service stops at go into the services that call at the served stations on either side of them
+    if not anchor and ((len(main) > 200 or tr.L > 1.5e6) and served >= 0.5 or len(main) > 100 and served >= 0.8):
+        for q in [main] + branches:
+            cur, prev = [], None
+            for s in q:
+                if s not in SERVED: cur.append(s); continue
+                if cur and prev is not None: ORPHAN.append((prev, [x for x in cur if strong(x, rec[x][1])], s))
+                prev, cur = s, []
+        nfb['long line served'] += 1; drop_log('fallback long line served', rid, t.get('name'), len(main), round(served, 2)); continue
+    cuts = [k + 1 for k, (x, y) in enumerate(zip(main, main[1:])) if not anchor and any(b - a > 100000 and min(rec[x][0], rec[y][0]) <= a and
+                                                                                     b <= max(rec[x][0], rec[y][0]) for a, b in tr.gaps)]
+    if cuts:        # a relation whose pieces lie far apart (Howrah-Nagpur-Mumbai line): a line per piece of 3+ stations, the
+        runs = [(0, q) for q in (main[x:y] for x, y in zip([0] + cuts, cuts + [len(main)])) if len(q) >= 3] + [(1, q) for q in branches if len(q) >= 3]
+        far = [w for w, m in zip(ways, tr.locate([WAYS[w][1][len(WAYS[w][1]) // 2] for w in ways])[1].tolist()) if m > 1000]
+        big = max(runs, key=lambda r: len(r[1]), default=None)         # longest named as the relation (Inlandsbanan)
+        for k, q in runs:
+            (a, b), _ = tr.locate([stations[q[0]][2:4], stations[q[-1]][2:4]])
+            FB.append({'rid': rid, 't': t if q is big[1] else dict(t, **{'name': '', 'name:en': '', 'ref': ''}), 'stops': q, 'branches': [],
+                       'ways': trim(ways, tr, min(a, b), max(a, b)) if k == 0 else far, 'anchor': False})
+        nfb['split at a gap'] += len(runs); continue
     (a, b), _ = tr.locate([stations[main[0]][2:4], stations[main[-1]][2:4]])
     FB.append({'rid': rid, 't': t, 'stops': main, 'branches': branches, 'ways': trim(ways, tr, min(a, b), max(a, b)) if not branches else ways,
                'anchor': anchor})
@@ -1350,26 +1398,59 @@ for ids in votes.values():
             if c['kind'] == 'r' and km_of(c['stops']) <= 150 and not PRODUCT.match(c['ref']) and not any(EXPRESS_CS.search(t.get('ref') or '') for t in c['ts'][:2]):
                 c['kind'] = 's'
 log('outside China', len(cand), 'countries', len({c['cc'] for c in cand}))
-# operators in English and their logos (tools/world/english.py): the operator's Wikidata item, else the rail operator of
-# that name in the line's country; a domestic train line that names no operator: the operator of nearly all the country's
-# trains. The logo key only when Wikidata has a logo for it (or an English Wikipedia article whose infobox shows one).
+# operators in English and their logos (tools/world/english.py line_operator()): the first of the operator build chose,
+# the other operator / network / brand tags of the line and its route masters, the operator its stations' nodes name,
+# whose Wikidata item (tagged, curated in ref/operators.json, or of that name in the line's country) has a logo (Commons,
+# its parent company's, its English or native Wikipedia infobox's); a domestic train naming none: the national operator.
+# Then a line still without one takes the logo 75%+ of the others of its network (or city and kind, below) show.
 nlogo = Counter()
-def tag_ops(ts):        # the other operator / network / brand values of the line's tags, with their Wikidata ids
-    for t in ts[:4]:
-        for k in ('operator', 'network', 'brand'):
-            v = first(t.get(k + ':en')) if latin(first(t.get(k + ':en'))) else first(t.get(k))
-            if v and not NOT_OP.search(v): yield v, first(t.get(k + ':wikidata')) if re.fullmatch(r'Q\d+', first(t.get(k + ':wikidata'))) else ''
-RAILWAYS = {'IN': 'Q819425'}      # the one railway of every main-line train, where OSM names its zones or nothing (Indian Railways)
+STN_OPS, MASTER_OF = defaultdict(set), {}          # station record -> operators its nodes name; route -> its master's tags
+for nid, j in st_index.items():
+    if first(NODES[nid][2].get('operator')): STN_OPS[j].add(first(NODES[nid][2].get('operator')))
+for mid, m in RELS.items():
+    if m['tags'].get('type') == 'route_master': MASTER_OF.update({x: m['tags'] for typ, x, role in m['members'] if typ == 'r'})
+def fill_logos(groups, why):
+    """Lines of a group without a logo take the one 75%+ (2+) of the group's lines with a logo show."""
+    for ids in groups.values():
+        cnt = Counter((cand[i]['op'], cand[i]['logo']) for i in ids if cand[i]['logo'])
+        if cnt and cnt.most_common(1)[0][1] >= max(2, 0.75 * sum(cnt.values())):
+            for i in ids:
+                if not cand[i]['logo']: cand[i]['op'], cand[i]['logo'] = cnt.most_common(1)[0][0]; nlogo[why] += 1
 for c in cand:
-    dom = c['kind'] in 'hrs' and len({stations[s][8] for s in allst(c)}) == 1
-    name, url, q, wiki = english_operator(c['op'], c['logo'][3:], c['cc'], c['kind'] if dom and not c['op'] else '')
-    for v, vq in ([] if url else tag_ops(c['ts'])):      # no logo for it: the logo of another of its operator tags
-        alt = english_operator(v, vq, c['cc'])
-        if alt[1]: name, url, q, wiki = alt; break
-    if not url and dom and c['cc'] in RAILWAYS and c['mode'] == 'train':
-        q = RAILWAYS[c['cc']]; name, wiki = name or wd.op(q)[0], wd.wiki(q)
-    c['op'], c['logo'] = name or (wd.op(q)[0] if q else ''), 'wd:' + q if q and (url or wiki) else ''
+    dom = c['kind'] in 'hrs' and c['mode'] == 'train' and len({stations[s][8] for s in allst(c)}) == 1
+    stn = Counter(v for s in allst(c) for v in STN_OPS.get(s, ()))
+    ts = c['ts'] + [MASTER_OF[x] for x in sorted(x for x in c['rids'] if x in MASTER_OF)]
+    name, url, q, wiki = line_operator(c['op'], c['logo'][3:], ts, c['cc'], c['kind'], dom, stn)
+    c['op'], c['logo'] = name, 'wd:' + q if q and (url or wiki) else ''
     nlogo['url' if url else 'wiki' if wiki and c['logo'] else 'item without logo' if q else 'no item'] += 1
+_g = defaultdict(list)
+for i, c in enumerate(cand):
+    if c['net'] and not NOT_OPERATOR.search(c['net']): _g[(c['cc'], c['net'], c['kind'] in 'mltf')].append(i)
+fill_logos(_g, 'network')
+# a train that names no operator at all: the logo of the trains of its country at its stations (intercity for intercity,
+# suburban or regional for suburban) when lines with it stop at 40%+ (2+) of its stations and it is 75%+ of what they
+# show; a "JR…" line: the JR company of the JR lines at its stations
+JR_OP = re.compile(r'Japan Railway|Hokkaido Railway|Shikoku Railway|Kyushu Railway|^JR ')
+_at = defaultdict(set)
+for i, c in enumerate(cand):
+    for s in allst(c): _at[s].add(i)
+for i, c in enumerate(cand):
+    if c['logo'] or c['kind'] not in 'hrs' or line_values(c['ts'], False): continue
+    stn = Counter(v for s in allst(c) for v in STN_OPS.get(s, ()))
+    net = infra_network(c['cc'], c['kind'], stn, c['ts'])     # a regional train on the national network (RFI's, Adif's stations)
+    jr, sts, cov = c['cc'] == 'JP' and first(c['ts'][0].get('name')).startswith('JR') or bool(net), allst(c), defaultdict(set)
+    for s in sts:
+        for j in _at[s] - {i}:
+            o = cand[j]
+            if o['logo'] and o['kind'] in ('sr' if c['kind'] == 's' else 'hr') and o['cc'] == c['cc'] and (not jr or JR_OP.search(o['op'])):
+                cov[(o['op'], o['logo'])].add(s)
+    if cov:
+        k, best = max(cov.items(), key=lambda kv: len(kv[1]))
+        if len(best) >= 0.75 * sum(map(len, cov.values())) and (jr or len(best) >= max(2, 0.4 * len(sts))):
+            c['op'], c['logo'] = k; nlogo['stations'] += 1; continue
+    if net and c['mode'] == 'train':
+        name, url, q, wiki = english_operator('', net, c['cc'])
+        if url: c['op'], c['logo'] = name, 'wd:' + q; nlogo['national network'] += 1
 log('operator logos', dict(nlogo))
 
 # ---------------------------------------------------------------- duplicates
@@ -1571,13 +1652,21 @@ def termini(c):
         b = stations[max(c['stops'], key=lambda s: metres(*a[2:4], *stations[s][2:4]))]
         return f'{a[0]} – {b[0]} – {a[0]}', f'{a[1] or a[0]} – {b[1] or b[0]} – {a[1] or a[0]}'
     for x, y in ends_of(c)[:1]:      # the ends its relation names when the line has them (Lyria "Nice - Genève", not "Nice - Tenay")
-        sx, sy = max(c['all'], key=lambda s: fit(s, x)), max(c['all'], key=lambda s: fit(s, y))
+        pos = {s: i for i, s in enumerate(st)}; mid = len(st) / 2       # ties: the station nearest that end of the list
+        sx = max(sorted(c['all']), key=lambda s: (fit(s, x), -pos.get(s, mid)))
+        sy = max(sorted(c['all']), key=lambda s: (fit(s, y), pos.get(s, mid)))
         if sx != sy and fit(sx, x) >= 2 and fit(sy, y) >= 2: a, b = stations[sx], stations[sy]
     return f'{a[0]} – {b[0]}', f'{a[1] or a[0]} – {b[1] or b[0]}'
+NETN, OPB = Counter((c['cc'], c['net']) for c in cand), OPLIKE | broad()
+PATTERN = re.compile(r'(?i)(?:local|limited|express|baby bullet|bullet|rapid|skip[- ]stop|all[- ]stops|weekend|weekday|peak|off-peak|regular)'
+                     r'(?:[ /-](?:local|limited|express|weekend|weekday|service|train))*')
 for c in cand:
     ts = c['ts']; tss = ([c['mt']] if c['mt'] else []) + c['masters'] + [c['main_t']] + ts; nt = c['nt']
     raw = nt.get('name') or next((t.get('name') for t in tss if clean_name(t.get('name'))), '') or ''
-    name = clean_name(raw)
+    name = clean_name(raw); w = name.split(' ')
+    k = next((k for k in (3, 2, 1) if len(w) > k + 1 and ' '.join(w[:k]).lower() in OPB), 0)
+    if k and c['mode'] == 'train' and (PRODUCT.match(' '.join(w[k:])) or REGIONAL.match(' '.join(w[k:]))):
+        name = ' '.join(w[k:])        # an operator before a product and number: "SNCF Voyageurs TER 26 Ussel - Limoges"
     ens = [clean_name(t.get(k)) for t in [nt] + tss[:3] for k in ('name:en', 'int_name') if latin(t.get(k))]
     en = next((e for e in ens if e and not generic(strip_no(e), ts)), '')
     if c['ref'] and name.startswith(c['ref'] + ' ') and re.search(r' [-–] |\w[–—]\w', name): name = c['ref']      # "IC-16 Bruxelles - Namur - Luxembourg"
@@ -1600,6 +1689,8 @@ for c in cand:
     elif stem != name and stem:        # "Bolan Mail 4DN" -> "Bolan Mail"
         name = stem; en = strip_no(en) if en else en
     if not en: en = name if latin(name) else en_name(c, name) or (c['desc_en'] if latin(c['desc_en']) else name)
+    if c['kind'] == 's' and PATTERN.fullmatch(name) and SUBURBAN.fullmatch(c['net']) and NETN[(c['cc'], c['net'])] <= 3:
+        name = en = c['net']            # a commuter network of one line, named after a service pattern: "Local Weekend" -> "Caltrain"
     c['name'], c['en'] = name, en
 # the same name for different lines in one country / city ("DLR", "Southern", "London Trams") -> add the termini
 def operatorish(c):       # "GWR", "Southern", "c2c": the name is only the operator's
@@ -1715,6 +1806,10 @@ for i, c in enumerate(cand):
     c['city'] = city_idx[j]; cities[c['city']][5] += 1
     if c['logo']: city_nets[c['city']][c['logo']] += {'m': 10, 'l': 3, 't': 3}.get(c['kind'], 1)   # the metro's logo first
 for ci, cnt in city_nets.items(): cities[ci][7] = cnt.most_common(1)[0][0]
+_g = defaultdict(list)
+for i, c in enumerate(cand):
+    if c['kind'] in 'mltf' and c['city'] >= 0: _g[(c['cc'], c['city'], c['kind'])].append(i)
+fill_logos(_g, 'city'); log('operator logos by city', nlogo['city'])
 log('cities', len(cities))
 same = defaultdict(list)
 for i, c in enumerate(cand): same[(c['cc'], c['city'], c['name'])].append(i)

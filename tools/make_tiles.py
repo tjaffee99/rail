@@ -190,7 +190,7 @@ way_lines = defaultdict(set)
 for li, ways in enumerate(GEOM):
     if visible(li):
         for w in ways: way_lines[w].add(li)
-todo = [li for li in range(len(L)) if visible(li) and L[li][0] in 'hr']
+todo = [li for li in range(len(L)) if visible(li) and L[li][0] in 'hrs']
 filled = 0
 settle()
 with FORK.Pool(NPROC) as pool:
@@ -204,7 +204,7 @@ log('gaps between stops routed along the rail network:', filled)
 # (station tracks and sidings included) for the nearest other piece of the same line, within
 # 15 km of track, and draw the path as part of the line. A piece that can't be joined and has
 # no station of the line (main route or branch) on it is left out, so no line stops dead in open country.
-def pieces(ws):
+def pieces(ws, links=()):
     par = {}
     def f(x):
         while par.get(x, x) != x:
@@ -215,6 +215,8 @@ def pieces(ws):
         for n in r[1:]:
             b = f(n)
             if a != b: par[b] = a
+    for a, b in links:           # nodes joined by a straight bridge
+        if f(a) != f(b): par[f(b)] = f(a)
     out = defaultdict(set)
     for w in ws: out[f(int(refs(w)[0]))].add(w)
     return list(out.values())
@@ -238,8 +240,23 @@ def join(a, rest, cutoff):
     dst = set(np.flatnonzero(np.isin(ids, np.concatenate([refs(w) for w in rest]))).tolist())
     if not len(src) or not dst: return None
     return dijkstra(g[2], {int(i): 0.0 for i in src}, dst, cutoff)
+def bridge(li, a, rest, limit=3000):
+    """Piece a of a line and its other pieces that no track joins (a break in the OSM data): when both carry stops of the
+    line and come within `limit` m, their nearest nodes -> ('bridge', coords, node a, node b), else None."""
+    from scipy.spatial import cKDTree
+    A = np.concatenate([coords(w) for w in a]); RA = np.concatenate([refs(w) for w in a]); c = cosl(float(A[:, 1].mean()))
+    st = mxy(np.array([S[x][2:4] for q in stop_lists(li) for x in q], np.float64).reshape(-1, 2), c)
+    PA = mxy(A, c)
+    if not len(st) or cKDTree(PA).query(st)[0].min() > 1500: return None
+    rw = list(rest); B = np.concatenate([coords(w) for w in rw]); RB = np.concatenate([refs(w) for w in rw]); PB = mxy(B, c)
+    near = (np.abs(PB - (PA.min(0) + PA.max(0)) / 2) <= np.ptp(PA, 0) / 2 + limit).all(1)
+    if not near.any(): return None
+    d, j = cKDTree(PB[near]).query(PA); i = int(d.argmin())
+    if d[i] > limit: return None
+    k = np.flatnonzero(near)[j[i]]
+    return ('bridge', np.array([A[i], B[k]]), int(RA[i]), int(RB[k]))
 def joins(li):
-    ws = line_ways[li]; added, dropped = [], []
+    ws = line_ways[li]; added, dropped, links = [], [], []
     ps = pieces(ws)
     stuck = []
     while len(ps) > 1:
@@ -247,10 +264,13 @@ def joins(li):
         a = ps[0]; rest = set().union(*ps[1:])
         path = join(a, rest, 15000)
         if path is None:
-            stuck.append(ps.pop(0)); continue
+            b = bridge(li, a, rest)
+            if b is None: stuck.append(ps.pop(0)); continue
+            added.append(b); links.append(b[2:])     # a stretch OSM leaves out (under 3 km) between pieces with stops: straight
+            ps = pieces(set().union(*ps), links); continue
         added.append(list(path))
         ws |= path
-        ps = pieces(set().union(*ps) | path)
+        ps = pieces(set().union(*ps) | path, links)
     for a in stuck:
         P = np.concatenate([coords(w) for w in a]); c = cosl(float(P[:, 1].mean()))
         P, st = mxy(P, c), mxy(np.array([S[x][2:4] for q in stop_lists(li) for x in q], np.float64).reshape(-1, 2), c)
@@ -262,11 +282,14 @@ joined = dropped = 0
 line_ways = defaultdict(set)
 for w, ls in way_lines.items():
     for li in ls: line_ways[li].add(w)
-todo = [li for li in line_ways if L[li][0] in 'hr']
+todo = [li for li in line_ways if L[li][0] in 'hrs']
 settle()
+bridged = 0
 with FORK.Pool(NPROC) as pool:
     for li, (added, drop) in zip(todo, pool.imap(joins, todo, chunksize=4)):
         for path in added:
+            if path[0] == 'bridge':       # a straight way of its own between the two nodes
+                w = -1 - bridged; bridged += 1; WAYS[w] = (path[1], {'railway': 'rail'}, np.array(path[2:], np.int64)); path = [w]
             for w in path: way_lines[w].add(li); line_ways[li].add(w)
             joined += 1
         for a in drop:
@@ -274,7 +297,7 @@ with FORK.Pool(NPROC) as pool:
                 way_lines[w].discard(li); line_ways[li].discard(w)
                 if not way_lines[w]: del way_lines[w]
             dropped += 1
-log('line pieces joined along the rail network:', joined, '· stray pieces without a station left out:', dropped)
+log('line pieces joined along the rail network:', joined, f'({bridged} straight across breaks in the data)', '· stray pieces without a station left out:', dropped)
 del GRID, _routes
 
 # ---------------------------------------------------------------- ends

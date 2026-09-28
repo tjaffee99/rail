@@ -208,7 +208,7 @@ LINE_EN = {
     '集二铁路': 'Jining–Erenhot Railway',
     '广茂线': 'Guangzhou–Maoming Railway',
     '哈佳线': 'Harbin–Jiamusi Railway',
-    '长白线': 'Changchun–Baishan Railway',
+    '长白线': 'Changchun–Baicheng Railway',
     '黎湛线': 'Litang–Zhanjiang Railway',
     '新兖铁路': 'Xinxiang–Yanzhou Railway',
     '兖石线': 'Yanzhou–Shijiusuo Railway',
@@ -368,6 +368,34 @@ NOT_PUBLIC = {
     'APM T1': 'airside people mover',
     'Hong Kong International Airport Automated People Mover': 'airside people mover',
 }
+
+# China Railway lines without passenger trains (2026-09 audit against the 12306 station list and timetable queries):
+# none of their stations sells tickets or sees a train, or the stations are served only by other lines; by native name.
+NO_PASSENGER = {**dict.fromkeys(
+    ['遵小线', '张建线', '坪岚线', '中马线', '湖大线', '南票线', '归连线', '林新线', '郭查铁路', '郭白铁路', '柴达尔线', '范辛铁路',
+     '黄公线', '紫云线', '云浮支线', '轮北线', '前贾铁路', '黄格线', '天潜线', '红一线', '双湟线', '锡北线', '芦草沟线', '镇瑞线',
+     '禹亳铁路', '铁灵线', '朝杞铁路', '久永线', '双雷线', '黄石山南线', '静静铁路', '沙鲅线', '团杉线', '永嘉线', '沙浔线', '丰沛线',
+     '玉门南线', '石林线', '爱伊线', '博八线', '草官线', '金沙线', '来合铁路', '乐德线', '乌吉线', '东平铁路', '吕临铁路', '天仙线',
+     '西金线', '虎丰线', '洛宜线', '丰洛线', '扎阿线', '宣庞线', '宇辉铁路', '汤鹤铁路', '惠大铁路', '桦南线', '铁法线', '朝马线',
+     '葫芦岛线', '和坪线', '坊子线', '沁沁线', '峻德线', '禹郑铁路', '梅前线', '资许铁路', '张塘线', '东乌铁路', '金筠线', '响大线',
+     '呼准铁路', '周准铁路', '响四线', '库俄线', '小沾铁路', '曹寿线', '徐沛线', '宝麟铁路', '巴珠线', '霍白线', '包满铁路', '青芦铁路',
+     '漯舞铁路', '成汶线', '荆沙线', '羊场线', '榆横铁路', '保满线', '渡口铁路', '宁大线', '将黑线', '瓮马铁路', '唐遵线', '小厉铁路',
+     '临白铁路', '水曹线', '开阳线', '连燕铁路', '尧兴支线', '广岳铁路', '叙大线', '海拉线', '古范线', '宁老线', '城庄线', '北保线',
+     '乐清湾线', '芜铜线', '青临线', '卑水线', '南曹线', '雪肖线', '洋吕铁路', '漳泉线', '口泉铁路', '嫩黑线', '广珠线', '浑白线',
+     '孝柳铁路', '马磁铁路', '沙午铁路', '春罗线', '武左线', '烟白铁路', '水大线', '水蚌铁路', '黎钦铁路', '宜珙线', '海青铁路',
+     '胶黄铁路', '坪木线', '松团线', '昆阳线', '大枣线', '金阿线', '红柠铁路', '乌锡线', '丹前线', '磁莱铁路', '东吴线', '新密铁路',
+     '麻武铁路', '上新线', '外南线', '福马线', '七滦线', '阳泉东线', '白荫线', '沙蔚铁路', '大台线', '阜金线', '白和线', '安李铁路',
+     '涪三线', '图珲线', '邢和线', '隆黄线隆叙段', '隆泸叙线', '伊敏线', '瓦长线', '东川线', '泰肥线', '张博线', '良陈线', '岢瓦线',
+     '靖神线', '朱中线', '松宜线', '德天线', '达三线', '珠珠线', '罗若铁路', '抚江线', '宇松线', '和龙线', '韶山线', '安庆线'],
+    'freight or industrial railway, no passenger trains'), **dict.fromkeys(
+    ['九江线', '仙宁线', '滠武线', '成花线', '西安北环线', '天津西南环线', '天津北环线', '丰双线', '兰州北环线', '太原西南环线', '包环线',
+     '邕南铁路', '西北环线', '成宾线', '武黄线', '梓权线', '成昆思乐外绕线'],
+    'connecting line or freight ring without passenger stations'), **dict.fromkeys(
+    ['宣杭老线', '老娄邵铁路', '鸡杨铁路', '禹郸铁路', '昆河线', '蒙宝铁路', '广大铁路'],
+    'old alignment or closed line (passenger trains use the new line)'),
+    '金山线': 'track of the Jinshan Railway suburban line (shown) and its freight spur',
+    '嘉闵线': 'suburban line under construction',
+    '济枣高速线': 'high-speed line under construction (no trains 历城–曲阜东 on 12306)'}
 
 # Freight-only railways (no scheduled passenger trains, 2025–26). Matched on the name
 # with 线/铁路 variants. Researched from news and Wikipedia snippets; the low-confidence

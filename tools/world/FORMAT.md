@@ -73,9 +73,13 @@ country (data/index.json only): `0 ISO code, 1 English name, 2 native name, 3 in
 - `data/search.json` (on first search): `{l: [[lineId, en, native, ref, cityId, kind, countryId]], s: [[stationId, en ('' if same as native), native, kind, nLines, countryId]]}`.
 - `data/manifest.json` + `data/tiles/*.bin`: vector tiles (below).
 - `data/logos.json`: `{key: {name, url}}` hand-checked logos (China), plus an entry for every `"wd:Q…"` key the lines and
-  cities use, resolved at build time by assemble.py from the `tools/world/wikidata.py` caches (the item's Commons logo, its
-  parent company's, or its English Wikipedia infobox logo); `{name, wiki}` when only the article is known. The world
-  builder gives a line a `wd:` key only when one of these exists, so the site makes no Wikidata calls for them.
+  cities use, resolved at build time by assemble.py from the `tools/world/wikidata.py` caches (the item's Commons logo, the
+  file `tools/world/ref/operators.json` gives it, its English or native-language Wikipedia infobox logo, else its parent
+  company's); `{name, wiki}` when only the article is known and was not looked up (hand-checked `{name, wiki}` entries get
+  the `url` of that article's infobox logo when it was). The world builder gives a line a `wd:` key only when one of these
+  exists, so the site makes no Wikidata calls for them. Which item a line's operator is: its operator / network / brand
+  tags (and its route master's), the operator its stations name, the curated names and national operators of
+  `ref/operators.json`, then the logo most of its network's (or city's) lines show, or the trains at its stations show.
 
 ## Tiles
 

@@ -1,0 +1,528 @@
+{
+ "_about": "Hand-checked Wikidata items of rail operators (tools/world/wikidata.py curated(), english.py line_operator(), build_world.py). names: operator / network / brand string as tagged in OSM ('name|CC' for one country, or 'name') -> its item, or {q: item or '', parent: item whose logo stands in when it has none, en: English name}; parents: item -> parent company Wikidata does not give; logos: item -> Commons logo file it lacks (checked on a contact sheet); national: the one passenger operator of a country's domestic trains of these kinds, for lines that name none ('named': also for lines whose named operator has no logo); infra: the operator of a country's regional trains of these kinds on the national network, for lines that name none (or only the infrastructure manager) whose stations the infrastructure manager runs (station operator tags matching 'stations'), when the trains at their stations do not say otherwise; china: China pipeline operator / network name or 'City|kind' -> a data/logos.json key or items. Every item checked by label and country (SPARQL).",
+ "names": {
+  "DB S-Bahn Rhein-Main|DE": "Q705684",
+  "EsTram|TR": "Q402899",
+  "FCA|BO": "Q1339410",
+  "Ferroviaria Andina|BO": "Q1339410",
+  "GRAS|BA": "Q1676623",
+  "Gaziulaş|TR": "Q124171714",
+  "Incofer|CR": "Q20983492",
+  "Kintetsu Railway Company|JP": "Q1531085",
+  "MVK Zrt.|HU": "Q19476",
+  "SAMULAŞ|TR": "Q20476505",
+  "SNCC|CD": "Q1481581",
+  "Samulaş|TR": "Q20476505",
+  "Sri Lanka Railway|LK": "Q7585945",
+  "U-OV|NL": "Q15910412",
+  "WTr UM Wrocław|PL": {
+   "q": "Q11780311",
+   "en": "MPK Wrocław"
+  },
+  "Wrocław|PL": {
+   "q": "Q11780311",
+   "en": "MPK Wrocław"
+  },
+  "АО «Алтай-Пригород»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Altai-Prigorod"
+  },
+  "АО «БППК»|RU": {
+   "q": "",
+   "parent": "Q660770"
+  },
+  "АО «Байкальская пригородная пассажирская компания»|RU": {
+   "q": "Q4075541",
+   "parent": "Q660770",
+   "en": "Baikal Suburban Passenger Company"
+  },
+  "АО «ВВППК»|RU": {
+   "q": "Q97659713",
+   "parent": "Q660770",
+   "en": "Volga-Vyatka Suburban Passenger Company"
+  },
+  "АО «Забайкальская пригородная пассажирская компания»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Trans-Baikal Suburban Passenger Company"
+  },
+  "АО «КППК»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Kaliningrad Suburban Passenger Company"
+  },
+  "АО «КрасПригород»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "KrasPrigorod"
+  },
+  "АО «Кубань Экспресс-Пригород»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Kuban Express-Prigorod"
+  },
+  "АО «Кузбасс-пригород»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Kuzbass-Prigorod"
+  },
+  "АО «МТППК»|RU": {
+   "q": "Q4304358",
+   "parent": "Q660770",
+   "en": "Moscow-Tver Suburban Passenger Company"
+  },
+  "АО «Омск-пригород»|RU": {
+   "q": "Q120276991",
+   "parent": "Q660770",
+   "en": "Omsk-Prigorod"
+  },
+  "АО «ППК «Черноземье»|RU": {
+   "q": "Q4341084",
+   "parent": "Q660770",
+   "en": "Chernozemye Suburban Passenger Company"
+  },
+  "АО «Пермская пригородная компания»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Perm Suburban Company"
+  },
+  "АО «СЗППК»|RU": {
+   "q": "Q4412463",
+   "parent": "Q660770",
+   "en": "Northwest Suburban Passenger Company"
+  },
+  "АО «СКППК»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "North Caucasus Suburban Passenger Company"
+  },
+  "АО «СППК»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Northern Suburban Passenger Company"
+  },
+  "АО «Самарская ППК»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Samara Suburban Passenger Company"
+  },
+  "АО «Саратовская пригородная пассажирская компания»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Saratov Suburban Passenger Company"
+  },
+  "АО «Свердловская пригородная компания»|RU": {
+   "q": "Q4410147",
+   "parent": "Q660770",
+   "en": "Sverdlovsk Suburban Company"
+  },
+  "АО «Северо-Западная пригородная пассажирская компания»|RU": {
+   "q": "Q4412463",
+   "parent": "Q660770",
+   "en": "Northwest Suburban Passenger Company"
+  },
+  "АО «ЦППК»|RU": {
+   "q": "Q4504137",
+   "parent": "Q660770",
+   "en": "Central Suburban Passenger Company"
+  },
+  "АО «Центральная ППК»|RU": {
+   "q": "Q4504137",
+   "parent": "Q660770",
+   "en": "Central Suburban Passenger Company"
+  },
+  "АО «Экспресс Приморья»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Express Primorye"
+  },
+  "АО «Экспресс-пригород»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Express-Prigorod"
+  },
+  "АО ППК «Содружество»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Sodruzhestvo Suburban Passenger Company"
+  },
+  "АО Пассажирская компания «Сахалин»|RU": {
+   "q": "",
+   "parent": "Q660770",
+   "en": "Sakhalin Passenger Company"
+  },
+  "ОАО «Волгоградтранспригород»|RU": {
+   "q": "Q105565350",
+   "parent": "Q660770",
+   "en": "Volgogradtransprigorod"
+  },
+  "ООО «ЮППК»|UA": {
+   "q": "Q97689239",
+   "en": "Southern Suburban Passenger Company"
+  }
+ },
+ "parents": {},
+ "logos": {
+  "Q20476505": "Samulaş logo.png",
+  "Q402899": "EsTram logo.png",
+  "Q4412463": "СЗППК.jpg",
+  "Q11780311": "Logo MPK Wrocław.png"
+ },
+ "national": {
+  "AL": {
+   "q": "Q115984",
+   "kinds": "hr",
+   "name": "Hekurudha Shqiptare"
+  },
+  "AM": {
+   "q": "Q20795233",
+   "kinds": "hrs",
+   "name": "South Caucasus Railway"
+  },
+  "AZ": {
+   "q": "Q617956",
+   "kinds": "hrs",
+   "name": "Azerbaijan Railways"
+  },
+  "BD": {
+   "q": "Q754829",
+   "kinds": "hrs",
+   "name": "Bangladesh Railway"
+  },
+  "BG": {
+   "q": "Q610143",
+   "kinds": "hrs",
+   "name": "Bulgarian State Railways"
+  },
+  "BW": {
+   "q": "Q848511",
+   "kinds": "hr",
+   "name": "Botswana Railways"
+  },
+  "CM": {
+   "q": "Q1031741",
+   "kinds": "hr",
+   "name": "Camrail"
+  },
+  "CU": {
+   "q": "Q21235039",
+   "kinds": "hrs",
+   "name": "Ferrocarriles de Cuba"
+  },
+  "EE": {
+   "q": "Q1326458",
+   "kinds": "hrs",
+   "name": "Elron"
+  },
+  "EG": {
+   "q": "Q253927",
+   "kinds": "hr",
+   "name": "Egyptian National Railways"
+  },
+  "HR": {
+   "q": "Q124357728",
+   "kinds": "hrs",
+   "name": "HŽ Putnički prijevoz"
+  },
+  "ID": {
+   "q": "Q2745027",
+   "kinds": "hr",
+   "name": "Kereta Api Indonesia"
+  },
+  "IN": {
+   "q": "Q819425",
+   "kinds": "hrs",
+   "named": true,
+   "name": "Indian Railways"
+  },
+  "IR": {
+   "q": "Q748603",
+   "kinds": "hr",
+   "name": "Islamic Republic of Iran Railways"
+  },
+  "KE": {
+   "q": "Q1663639",
+   "kinds": "hrs",
+   "name": "Kenya Railways Corporation"
+  },
+  "KG": {
+   "q": "Q247851",
+   "kinds": "hrs",
+   "name": "Kyrgyz Railways"
+  },
+  "KZ": {
+   "q": "Q1069105",
+   "kinds": "hrs",
+   "name": "Kazakhstan Temir Zholy"
+  },
+  "LK": {
+   "q": "Q7585945",
+   "kinds": "hrs",
+   "name": "Sri Lanka Railways"
+  },
+  "LT": {
+   "q": "Q110111309",
+   "kinds": "hrs",
+   "name": "LTG Link"
+  },
+  "LV": {
+   "q": "Q7142587",
+   "kinds": "hrs",
+   "name": "Pasažieru vilciens"
+  },
+  "MA": {
+   "q": "Q1815809",
+   "kinds": "hrs",
+   "name": "ONCF"
+  },
+  "ME": {
+   "q": "Q17099309",
+   "kinds": "hr",
+   "name": "Željeznički prevoz Crne Gore"
+  },
+  "MG": {
+   "q": "Q3275422",
+   "kinds": "hr",
+   "name": "Madarail"
+  },
+  "MM": {
+   "q": "Q1298110",
+   "kinds": "hrs",
+   "name": "Myanma Railways"
+  },
+  "MN": {
+   "q": "Q140964518",
+   "kinds": "hr",
+   "name": "Ulaanbaatar Railway"
+  },
+  "MW": {
+   "q": "Q5061010",
+   "kinds": "hr",
+   "name": "Central East African Railways"
+  },
+  "MZ": {
+   "q": "Q177262",
+   "kinds": "hrs",
+   "name": "Mozambique Ports and Railways"
+  },
+  "NA": {
+   "q": "Q1780755",
+   "kinds": "hr",
+   "name": "TransNamib"
+  },
+  "PK": {
+   "q": "Q918096",
+   "kinds": "hrs",
+   "name": "Pakistan Railways"
+  },
+  "RS": {
+   "q": "Q25459717",
+   "kinds": "hrs",
+   "name": "Srbijavoz"
+  },
+  "SI": {
+   "q": "Q766616",
+   "kinds": "hrs",
+   "name": "Slovenske železnice"
+  },
+  "SY": {
+   "q": "Q658126",
+   "kinds": "hr",
+   "name": "Syrian Railways"
+  },
+  "TH": {
+   "q": "Q2165702",
+   "kinds": "hr",
+   "name": "State Railway of Thailand"
+  },
+  "TJ": {
+   "q": "Q140964856",
+   "kinds": "hr",
+   "name": "Tajik Railways"
+  },
+  "TM": {
+   "q": "Q17075422",
+   "kinds": "hrs",
+   "name": "Türkmendemirýollary"
+  },
+  "TN": {
+   "q": "Q2297197",
+   "kinds": "hr",
+   "name": "Tunisian National Railway Company"
+  },
+  "UA": {
+   "q": "Q923337",
+   "kinds": "hrs",
+   "name": "Ukrainian Railways"
+  },
+  "UZ": {
+   "q": "Q2093569",
+   "kinds": "hrs",
+   "name": "Uzbek Railways"
+  },
+  "VN": {
+   "q": "Q501329",
+   "kinds": "hr",
+   "name": "Vietnam Railways"
+  },
+  "ZW": {
+   "q": "Q1967598",
+   "kinds": "hrs",
+   "name": "National Railways of Zimbabwe"
+  }
+ },
+ "infra": {
+  "IT": {
+   "q": "Q286650",
+   "kinds": "rs",
+   "stations": "^(?:Rete Ferroviaria Italiana|RFI)(?: S\\.p\\.A\\.)?$",
+   "name": "Trenitalia"
+  },
+  "ES": {
+   "q": "Q2476154",
+   "kinds": "rs",
+   "stations": "^(?:ADIF|Adif)$",
+   "name": "Renfe Operadora"
+  }
+ },
+ "china": {
+  "Shenyang Tram": [
+   "Q24088935"
+  ],
+  "沈阳有轨电车": [
+   "Q24088935"
+  ],
+  "Changchun|t": [
+   "Q2470065"
+  ],
+  "光谷有轨电车": [
+   "Q15921378"
+  ],
+  "Wuhan|t": [
+   "Q15921378"
+  ],
+  "浙中都市圈城际轨道交通": [
+   "Jinhua",
+   "Q17028075"
+  ],
+  "Shenzhen Tram": [
+   "Q16924991",
+   "Shenzhen"
+  ],
+  "Nanjing Tram": [
+   "Q17477081"
+  ],
+  "大连公交": [
+   "Q2468183"
+  ],
+  "北京亦庄公交有轨电车有限责任公司": "Beijing",
+  "上海市域轨道交通": "cr",
+  "松江有轨电车": [
+   "Q15848353"
+  ],
+  "Shanghai Maglev Transportation": [
+   "Q769591"
+  ],
+  "Chengdu Tram": "Chengdu",
+  "Huai'an Rail Transit": [
+   "Q22952155"
+  ],
+  "Foshan Tram": [
+   "Q10886742",
+   "Foshan"
+  ],
+  "Chongqing SkyShuttle": [
+   "Q85882716"
+  ],
+  "坪山云巴": [
+   "Q97275391"
+  ],
+  "大王山欢乐云巴": [
+   "Q116639068"
+  ],
+  "上海市域铁路": [
+   "Q24837199",
+   "Q133539073"
+  ],
+  "Xi'an SkyShuttle": [
+   "Q85884212"
+  ],
+  "凤凰磁浮文化旅游有限责任公司": [
+   "Q67936000"
+  ],
+  "Peak Tramways Company Limited": [
+   "Q1652985",
+   "Q11047626"
+  ],
+  "苏州高新区有轨电车": [
+   "Q15924832"
+  ],
+  "苏州高新有轨电车": [
+   "Q15924832"
+  ],
+  "柳州轨道集团": [
+   "Liuzhou",
+   "Q30949100"
+  ],
+  "Changsha|l": "Changsha",
+  "Qingdao Tram": [
+   "Q22774366"
+  ],
+  "红河有轨电车公司": [
+   "Mengzi",
+   "Q28415063"
+  ],
+  "Wenshan|t": [
+   "Q97348092"
+  ],
+  "Hefei": [
+   "Q2688118"
+  ],
+  "Shenyang": [
+   "Q646466"
+  ],
+  "Changchun": [
+   "Q2586148"
+  ],
+  "Nanning": [
+   "Q10907375"
+  ],
+  "Guiyang": [
+   "Q2688133"
+  ],
+  "Xuzhou": [
+   "Q11070585"
+  ],
+  "Wuhu": [
+   "Q22774332"
+  ],
+  "Shaoxing": [
+   "Q20063952"
+  ],
+  "Nantong": [
+   "Q18110961"
+  ],
+  "Jinhua": [
+   "Q17028075"
+  ],
+  "Lanzhou": [
+   "Q10893611"
+  ],
+  "Liuzhou": [
+   "Q30949100"
+  ],
+  "Sanya": [
+   "Q29580733"
+  ],
+  "Tianshui": [
+   "Q80141035"
+  ],
+  "Jiaxing": [
+   "Q97187813"
+  ],
+  "Mengzi": [
+   "Q28415063"
+  ]
+ }
+}

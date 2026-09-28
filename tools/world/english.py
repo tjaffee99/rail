@@ -21,14 +21,20 @@ english_station_src(...) -> (name, source)    the same and its source: latin wd-
 english_line(native, tags, cc) -> str         line / route name: name:en, int_name, name:<lang>-Latn, else latinize()
                                               ("1호선" / "1号线" -> "Line 1", "สายสีม่วง" -> "Purple Line")
 english_operator(name, q, cc, kind='') -> (name, logo url, qid, wiki)
-    name: the operator's own name when Latin, else its Wikidata English label, else latinize(); q: its wikidata id,
-    else the rail operator of that name in that country (wikidata.op_by_name), else for a train line (kind h r s) that
-    names no operator the one that runs nearly all the country's trains (wikidata.default_operator); a non-Latin name
-    without an English label is transliterated without its legal form ("АО «ФПК»" -> "FPK"); logo url: 120 px,
-    its parent company's if it has none ('' when none); wiki: when there is no logo url, the English Wikipedia article
-    whose infobox logo the site can look up ({name, wiki} entry of data/logos.json), else ''. The name stays '' for a
-    line that names no operator. The national fallback is opt-in: pass kind only if lines without operator tags should
-    get it (it is wrong for heritage / cross-border lines of that country).
+    name: the curated English name (ref/operators.json), the operator's own name when Latin, else its Wikidata English
+    label, else latinize(); q: its wikidata id, else the item of that name in that country (wikidata.op_by_name: the
+    curated one, exact labels, the entity search), else for a train line (kind h r s) that names no operator the
+    country's national operator (national_operator); a non-Latin name without an English label is transliterated without
+    its legal form ("АО «ФПК»" -> "FPK"); logo url: 120 px (wikidata.op: Commons, curated file, English then native
+    Wikipedia infobox, parent company's) or ''; wiki: when there is no logo url, the English Wikipedia article whose
+    infobox logo the site can look up ({name, wiki} entry of data/logos.json), else ''. The name stays '' for a line that
+    names no operator.
+line_operator(op, q, ts, cc, kind, dom, stn) -> (name, logo url, qid, wiki)
+    the operator of a line (build_world.py): the first of build_world's choice, the other operator / network / brand tags
+    (line_values: fare associations, infrastructure managers and generic words left out) and the leading operator of its
+    stations' nodes whose item has a logo; a domestic train that names none: the national operator (national_operator:
+    ref/operators.json "national", else wikidata.default_operator). infra_network(cc, kind, stn, ts): the operator of the
+    regional trains on the national network (ref/operators.json "infra": Trenitalia on RFI's stations, Renfe on Adif's).
 latinize(s, cc) -> str
     Readable Latin form of any name, never '' for a non-empty name and never with non-Latin letters left: translit.py
     for Japanese, Chinese, Korean, Cyrillic, Greek; here Thai (pythainlp's thai2rom_onnx model on segmented words, its
@@ -43,6 +49,7 @@ Also: script(s) -> main script of a name ('LATIN', 'CYRILLIC', 'JAPANESE', 'CJK'
 Needs: pip install pythainlp onnxruntime indic_transliteration (plus translit.py's jieba pykakasi pypinyin anyascii).
 """
 import difflib, os, re, sys, unicodedata
+from collections import Counter
 from functools import lru_cache
 from anyascii import anyascii
 sys.path.insert(0, os.path.dirname(__file__))
@@ -259,9 +266,74 @@ def english_line(native, tags=None, cc=''):
     return latinize(n, cc)
 def english_operator(name, q='', cc='', kind=''):
     q = q or (wd.op_by_name(name, cc) if name else '')
-    if not q and not name and kind in ('h', 'r', 's'): q = wd.default_operator(cc)[0]
+    if not q and not name and kind in ('h', 'r', 's'): q = national_operator(cc, kind)
     en, url = wd.op(q) if q else ('', '')
-    return (name if latin(name) else cap(en) or latinize(wd.norm_op(name) or name, cc)), url, q, (wd.wiki(q) if q and not url else '')
+    return (wd.curated_entry(name, cc).get('en') or (name if latin(name) else cap(en) or latinize(wd.norm_op(name) or name, cc))), url, q, \
+        (wd.wiki(q) if q and not url else '')
+
+# ---------------------------------------------------------------- the operator of a line
+# not the operator: fare associations and zones, infrastructure managers and station owners, generic words, OSM codes
+NOT_OPERATOR = re.compile(r'(?i)verbund|tarif|\btakst|\bfare\b|unknown|unbekannt|national rail|hoofdrailnet|^[A-Z]{2}[:_]|network rail|'
+                          r'^(?:VOR|VBB|VRR|VRS|VRN|KVV|RMV|HVV|MVV|VVS|VGN|VMS|VVO|MDV|ZVV|OÖVV|VVT|SVV|NVV|AVV|VBN|GVH|NAH\.SH|VMT|VPE|VRT|TNW|'
+                          r'OVV|Libero|Mobilis|Onde Verte|A-Welle|Ostwind|Passepartout|TransReno|Unireso|Frimobil|Arcobaleno|Engadin Mobil|'
+                          r'ch-integral|CH-VS|Z-Pass)$|'
+                          r'trafikverket|bane ?nor\b|infrabel|prorail|sncf r[ée]seau|\brfi\b|rete ferroviaria italiana|\badif\b|db netz|'
+                          r'infrago|db station|station ?& ?service|infraestruturas|polskie linie kolejowe|pkp plk|správa železnic|'
+                          r'infra(?:struct|strukt|strutt)|инфраструктур|інфраструктур|\bНКЖИ\b|^(?:national|regional|local|city|urban|commuter|suburban|intercity|express|train|trains|tren|'
+                          r'railway|rail|metro|tram|bus|none|no|yes|public|private)$|エリア|地区|ネットワーク|系統|線系|近郊区間')
+def _first(v): return (v or '').split(';')[0].strip()
+def line_values(ts, urban):
+    """[(value, wikidata id)] of a line's operator / network / brand tags (and their :en forms), urban lines network
+    first, trains operator first; fare associations, infrastructure managers and generic words left out."""
+    out = []
+    for k in (('network', 'brand', 'operator') if urban else ('operator', 'brand', 'network')):
+        for t in ts[:8]:
+            q = _first(t.get(k + ':wikidata'))
+            for v in (_first(t.get(k)), _first(t.get(k + ':en'))):
+                if v and not NOT_OPERATOR.search(v): out.append((v, q if re.fullmatch(r'Q\d+', q) else ''))
+    return list(dict.fromkeys(out))
+def national_operator(cc, kind):
+    """The one passenger operator of the country's domestic trains of this kind: ref/operators.json "national", else the
+    operator of 90%+ of its train services (wikidata.default_operator); '' when there is none."""
+    wd._ref()
+    n = wd._C['refnat'].get(cc)
+    if n: return n['q'] if kind in n.get('kinds', 'hrs') else ''
+    return wd.default_operator(cc)[0] if kind in 'hrs' else ''
+def infra_network(cc, kind, stn, ts):
+    """The operator item (ref/operators.json "infra") of the regional trains of this kind on the country's national network,
+    when the line's stations are the infrastructure manager's (the operator most of their nodes name) or its only operator
+    tag names that manager; '' otherwise."""
+    wd._ref(); n = wd._C['refinfra'].get(cc)
+    if not n or kind not in n['kinds']: return ''
+    top = (stn or Counter()).most_common(1)
+    tags = {_first(t.get('operator')) for t in ts[:8]} - {''}
+    return n['q'] if top and re.search(n['stations'], top[0][0]) or tags and all(re.search(n['stations'], v) for v in tags) else ''
+def line_operator(op, q, ts, cc, kind, dom=False, stn=None):
+    """(name, logo url, qid, wiki) of a line: the first of its operator candidates whose item (its wikidata tag, the
+    curated one, the one of that name: wikidata.op_by_name) has a logo: the operator build_world chose (op, q), the other
+    operator / network / brand values of its tags (line_values), the leading operator of its stations' nodes (stn:
+    Counter of values, 2+ nodes and 40%+ of them), for a domestic train (dom) the country's national operator (only when
+    the line names none, or ref/operators.json says "named": its zones are that railway's). Else the first candidate
+    with an item, else op in English."""
+    if op and NOT_OPERATOR.search(op): op, q = '', ''      # an infrastructure manager, fare association ...: not the operator
+    own = {_first(t.get(k + ':wikidata')) for t in ts for k in ('operator', 'network', 'brand')}
+    o = wd._item(q)[1] if q and q not in own else None     # an id build_world took from another line of that name ("SETRAM"
+    if o and o['cc'] and cc not in {wd.iso(c) for c in o['cc']}: q = ''      # of Le Mans for Algeria's trams): of this country only
+    cands = ([(op, q)] if op else []) + line_values(ts, kind in 'mltf')
+    tot = sum((stn or {}).values())
+    cands += [(v, '') for v, n in (stn or Counter()).most_common(3) if n >= 2 and n >= 0.4 * tot and not NOT_OPERATOR.search(v)]
+    got = None
+    for v, vq in dict.fromkeys(cands):
+        if vq and wd.infra(wd._item(vq)[1]): vq = ''      # "Trenitalia" tagged with the infrastructure manager's id
+        r = english_operator(v, vq, cc)
+        if r[2] and wd.infra(wd._item(r[2])[1]): continue
+        if r[1]: return r
+        if r[2] and got is None: got = r
+    nat = national_operator(cc, kind) if dom and kind in 'hrs' else ''
+    if nat and (not got and not op or wd._C['refnat'].get(cc, {}).get('named')):
+        r = english_operator('', nat, cc)
+        if r[1]: return (got[0] if got else english_operator(op, q, cc)[0] if op else r[0]) or r[0], r[1], r[2], r[3]
+    return got or ((english_operator(op, q, cc)[0] if op else ''), '', '', '')
 
 # ---------------------------------------------------------------- transliteration of the other scripts
 WORDS = {'জংশন': 'Junction', 'जंक्शन': 'Junction', 'जंकशन': 'Junction', 'ਜੰਕਸ਼ਨ': 'Junction', 'જંક્શન': 'Junction', 'சந்திப்பு': 'Junction',
