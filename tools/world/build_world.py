@@ -749,6 +749,15 @@ for rid, m in RELS.items():   # (an airside mover's: unless they say they run la
     if bad or why:
         BAD_MASTER.update(x for typ, x, role in m['members'] if typ == 'r' and x in RELS and (bad or not any(RELS[x]['tags'].get(k) for k in (
             'operator', 'network')) or why == 'airside' and not re.search(r'(?i)landside', RELS[x]['tags'].get('name', ''))))
+# running services that OSM maps only as an outdated relation: tags that make them the current line (checked by hand)
+FORCE = {2752701: {'name': 'ירושלים – תל אביב', 'name:he': 'ירושלים – תל אביב', 'name:en': 'Jerusalem – Tel Aviv',
+                   'service': 'high_speed', 'network': 'Israel Railways', 'operator': 'Israel Railways'}}   # the A1, Navon – airport
+FORCE_STOPS = {2752701: [7144868421, 3982712778, 3978658308, 2930618402, 2930618401]}   # Navon (deep underground, off the
+# track's snapping range), Ben Gurion Airport, Tel Aviv HaHagana, Savidor Center, University: the A1's Jerusalem – Tel Aviv run
+for rid, tags in FORCE.items():
+    if rid in RELS:
+        RELS[rid]['tags'] = {k: v for k, v in RELS[rid]['tags'].items() if k != 'fixme'} | tags
+        RELS[rid]['members'] = [m for m in RELS[rid]['members'] if m[0] != 'n'] + [('n', n, 'stop') for n in FORCE_STOPS.get(rid, [])]
 INFRA_T = []          # route=train relations that map a railway line (handled with the fallback)
 for rid, r in RELS.items():
     t = r['tags']
@@ -1745,6 +1754,33 @@ def termini(c):
         sy = max(sorted(c['all']), key=lambda s: (fit(s, y), pos.get(s, mid)))
         if sx != sy and fit(sx, x) >= 2 and fit(sy, y) >= 2: a, b = stations[sx], stations[sy]
     return f'{a[0]} – {b[0]}', f'{a[1] or a[0]} – {b[1] or b[0]}'
+# a branch named after the junction it leaves ("Ratangarh – Sardarshahr railway") whose own track stops short of it: the
+# junction's station sits on the main line's track, so no stop was taken from it. The named station within 25 km of the
+# nearer end becomes that end (the tile step routes the gap along the rail network).
+_SK = defaultdict(list)
+for i, st in enumerate(stations):
+    for k in {skey(st[0]), skey(st[1])} - {''}: _SK[k].append(i)
+def reach_named_ends(c):
+    if c['kind'] not in 'hrs' or c['loop'] or len(c['stops']) < 2: return 0
+    names = ' '.join(t.get(k, '') for t in (c['nt'], c['main_t']) for k in ('name', 'name:en'))
+    if not (c['fallback'] or re.search(r'(?i)railway|rail line|\bline\b|branch|section|lijn|linie|ligne|línea|linea|linia', names)): return 0   # a line, not a train
+    added = 0
+    for pair in ends_of(c)[:1]:
+        for x in pair:
+            if any(fit(s, x) >= 2 for s in c['all']): continue
+            k = skey(stn_name({'name': x}))
+            if len(k) < 3: continue
+            cands = {s for sfx in ('', 'junction', 'jn', 'jct', 'jnc') for s in _SK.get(k + sfx, ())}
+            ends = (c['stops'][0], c['stops'][-1])
+            best = min(((min(metres(*stations[e][2:4], *stations[s][2:4]) for e in ends), s) for s in cands), default=None)
+            if not best or best[0] > 25000: continue
+            s = best[1]
+            if s in c['all']: continue
+            if metres(*stations[ends[0]][2:4], *stations[s][2:4]) < metres(*stations[ends[1]][2:4], *stations[s][2:4]): c['stops'] = [s] + c['stops']
+            else: c['stops'] = c['stops'] + [s]
+            c['all'] = allst(c); added += 1
+    return added
+log('named junction ends added', sum(reach_named_ends(c) for c in cand))
 NETN, OPB = Counter((c['cc'], c['net']) for c in cand), OPLIKE | broad()
 PATTERN = re.compile(r'(?i)(?:local|limited|express|baby bullet|bullet|rapid|skip[- ]stop|all[- ]stops|weekend|weekday|peak|off-peak|regular)'
                      r'(?:[ /-](?:local|limited|express|weekend|weekday|service|train))*')

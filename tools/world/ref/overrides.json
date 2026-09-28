@@ -54,6 +54,16 @@
     "1": "Epcot Monorail",
     "2": "Epcot Monorail"
    }
+  },
+  {
+   "note": "Jerusalem – Tel Aviv high-speed line (A1): OSM maps it only as an outdated relation, forced in build_world.py FORCE",
+   "match": 2752701,
+   "set": {
+    "0": "h",
+    "1": "ירושלים – תל אביב",
+    "2": "Jerusalem – Tel Aviv",
+    "13": "Israel Railways"
+   }
   }
  ],
  "logos": {
