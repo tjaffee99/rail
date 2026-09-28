@@ -64,6 +64,174 @@
     "2": "Jerusalem – Tel Aviv",
     "13": "Israel Railways"
    }
+  },
+  {
+   "note": "Coastal Pacific: stops in running order (Christchurch is the southern terminus) [anglo audit]",
+   "match": 1598959,
+   "stops": [
+    "Picton",
+    "Blenheim",
+    "Kaikōura",
+    "Rangiora",
+    "Christchurch"
+   ]
+  },
+  {
+   "note": "VIA Ottawa – Québec starts at Ottawa (Fallowfield is a Toronto – Ottawa stop) [anglo audit]",
+   "match": 8222333,
+   "stops": [
+    "Ottawa",
+    "Casselman",
+    "Alexandria",
+    "Coteau",
+    "Dorval",
+    "Gare centrale de Montréal",
+    "Gare de Saint-Lambert",
+    "Saint-Hyacinthe",
+    "Drummondville",
+    "Charny",
+    "Sainte-Foy",
+    "Québec"
+   ]
+  },
+  {
+   "note": "V/Line Albury: one line Albury – Southern Cross on the standard-gauge track (its Melbourne end was a separate stub) [anglo audit]",
+   "match": 2963173,
+   "merge": [
+    2794031
+   ],
+   "stops": [
+    "Albury",
+    "Wodonga",
+    "Springhurst",
+    "Wangaratta",
+    "Benalla",
+    "Violet Town",
+    "Euroa",
+    "Avenel",
+    "Seymour",
+    "Broadmeadows",
+    "Southern Cross Station"
+   ]
+  },
+  {
+   "note": "Australind: Perth – Bunbury in running order, without the Armadale line's suburban stops [anglo audit]",
+   "match": 2403605,
+   "stops": [
+    "Perth",
+    "Armadale",
+    "Byford",
+    "Mundijong",
+    "Pinjarra",
+    "Waroona",
+    "Cookernup",
+    "Harvey",
+    "Brunswick Junction",
+    "Picton Junction"
+   ]
+  },
+  {
+   "note": "Ferrobus (CO): no regular service (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 13708000,
+   "drop": true
+  },
+  {
+   "note": "Tren Ecuador Naranjito – Durán: closed 2020 (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2016158,
+   "drop": true
+  },
+  {
+   "note": "Tren Ecuador Ambato – Urbina: closed 2020 (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 8277374,
+   "drop": true
+  },
+  {
+   "note": "Ghana Eastern Line: Accra – Nsawam not running (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 11919949,
+   "drop": true
+  },
+  {
+   "note": "Namibia Tsumeb – Oshikango: StarLine suspended since 2021 (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2119374,
+   "drop": true
+  },
+  {
+   "note": "Namibia Walvis Bay – Windhoek: StarLine suspended since 2021 (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2119375,
+   "drop": true
+  },
+  {
+   "note": "Namibia Windhoek – Keetmanshoop: StarLine suspended since 2021 (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2119397,
+   "drop": true
+  },
+  {
+   "note": "NZ Main South Line: no regular passenger service (tourist trains only) (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 14005441,
+   "drop": true
+  },
+  {
+   "note": "NZ Taieri Gorge Railway: tourist excursions (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 15094135,
+   "drop": true
+  },
+  {
+   "note": "Ferrocarril Central del Perú: occasional tourist trains only (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 3154829,
+   "drop": true
+  },
+  {
+   "note": "Monza railway (RU): no regular passenger service to Ida (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 16732777,
+   "drop": true
+  },
+  {
+   "note": "DL&W Mainline (US): historic infrastructure relation duplicating NJ Transit (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 1399722,
+   "drop": true
+  },
+  {
+   "note": "ZA Cape Town – De Aar: Shosholoza Meyl suspended since Oct 2024 (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2113948,
+   "drop": true
+  },
+  {
+   "note": "ZA Fourteen Streams – Germiston: no passenger service (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2113950,
+   "drop": true
+  },
+  {
+   "note": "ZA Ladysmith – Germiston: Shosholoza Meyl suspended since Oct 2024 (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2114205,
+   "drop": true
+  },
+  {
+   "note": "ZW Beitbridge – Bulawayo: no passenger train since 2014 (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2119856,
+   "drop": true
+  },
+  {
+   "note": "ZW Chicualacuala – Gweru: no passenger service (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2119858,
+   "drop": true
+  },
+  {
+   "note": "ZW Gweru – Masvingo: no passenger service (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2277270,
+   "drop": true
+  },
+  {
+   "note": "ZW Harare – Shamva: no passenger service (a track relation that surfaced when its service was dropped) [audit]",
+   "match": 2277317,
+   "drop": true
+  },
+  {
+   "note": "Béchar – Tindouf passenger line (opened Feb 2026), not its mining name [africa audit]",
+   "match": 20052232,
+   "set": {
+    "1": "بشار – تندوف",
+    "2": "Béchar – Tindouf"
+   }
   }
  ],
  "logos": {
