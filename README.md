@@ -2,7 +2,7 @@
 
 Interactive map of every passenger rail line in the world: high-speed and conventional
 railways, metro, suburban rail, light rail, trams and funiculars, from OpenStreetMap.
-Intended to be served at <https://rail.theojaffee.net>.
+Intended to be served at <https://trains.theojaffee.net>.
 
 A fully static site: no build step, no API keys.
 
@@ -19,7 +19,7 @@ data/logos.json     hand-checked operator logos (China)
 data/manifest.json  index into the rail tile chunks
 data/tiles/*.bin    rail vector tiles (z0–12), packed into chunk files
 data/glyphs/        Noto Sans label glyphs (Latin/Greek/punctuation ranges)
-CNAME               rail.theojaffee.net
+CNAME               trains.theojaffee.net
 tools/              data pipeline (tools/world/FORMAT.md describes every file above)
 ```
 

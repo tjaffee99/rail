@@ -760,8 +760,12 @@ for rid, m in RELS.items():   # (an airside mover's: unless they say they run la
             'operator', 'network')) or why == 'airside' and not re.search(r'(?i)landside', RELS[x]['tags'].get('name', ''))))
 # running services that OSM maps only as an outdated relation: tags that make them the current line (checked by hand)
 FORCE = {2752701: {'name': 'ירושלים – תל אביב', 'name:he': 'ירושלים – תל אביב', 'name:en': 'Jerusalem – Tel Aviv',
-                   'service': 'high_speed', 'network': 'Israel Railways', 'operator': 'Israel Railways'}}   # the A1, Navon – airport
-FORCE_STOPS = {2752701: [7144868421, 3982712778, 3978658308, 2930618402, 2930618401]}   # Navon (deep underground, off the
+                   'service': 'high_speed', 'network': 'Israel Railways', 'operator': 'Israel Railways'},   # the A1, Navon – airport
+         # Béchar – Tindouf (passenger trains since Feb 2026), mapped only as the Gara Djebilet mining line with no stops
+         20052232: {'route': 'train', 'name': 'بشار – تندوف', 'name:en': 'Béchar – Tindouf', 'name:fr': 'Béchar – Tindouf',
+                    'to': 'Tindouf', 'service': 'long_distance', 'network': 'SNTF', 'operator': 'SNTF'}}
+FORCE_STOPS = {2752701: [7144868421, 3982712778, 3978658308, 2930618402, 2930618401],
+               20052232: [2785628270, 13565642705, 13565642790, 13565643066, 13565643345, 13565643339, 13565516390]}   # Navon (deep underground, off the
 # track's snapping range), Ben Gurion Airport, Tel Aviv HaHagana, Savidor Center, University: the A1's Jerusalem – Tel Aviv run
 for rid, tags in FORCE.items():
     if rid in RELS:

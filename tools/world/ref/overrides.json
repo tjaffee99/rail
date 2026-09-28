@@ -570,6 +570,19 @@
    "note": "Hreblia (RZD) – Voskobiinia: Kamianske steelworks track, no passenger service [UA] [audit follow-up]",
    "match": -98025440,
    "drop": true
+  },
+  {
+   "note": "Béchar – Tindouf: passenger trains end at Tindouf (Gara Djebilet is the mine)",
+   "match": 20052232,
+   "stops": [
+    "Béchar",
+    "Abadla",
+    "Hammaguir",
+    "Tabelbala",
+    "Hassi Khebi",
+    "Oum El Assel",
+    "Tindouf"
+   ]
   }
  ],
  "logos": {
