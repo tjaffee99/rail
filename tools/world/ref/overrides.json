@@ -1,0 +1,25 @@
+{
+ "lines": [
+  {
+   "note": "Caltrain: one line San Francisco – Gilroy (the South County Connector runs Caltrain's Gilroy extension); OSM colours are its weekend/local service colours (white, light grey), use the brand red; the operator tag names the contractor",
+   "match": 9605482,
+   "merge": [
+    9604091
+   ],
+   "set": {
+    "1": "Caltrain",
+    "2": "Caltrain",
+    "3": "",
+    "4": "#E31837",
+    "13": "Caltrain",
+    "14": "caltrain"
+   }
+  }
+ ],
+ "logos": {
+  "caltrain": {
+   "name": "Caltrain",
+   "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Caltrain_logo.svg/120px-Caltrain_logo.svg.png"
+  }
+ }
+}

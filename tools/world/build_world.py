@@ -636,6 +636,8 @@ TOURIST_OK = re.compile(r'glacier express|bernina|cremallera|zahnradbahn|zugspit
                         r'gornergrat|jungfrau|achensee|wengernalp|montenvers|núria|nuria|montserrat|sóller|soller|inselbahn|flåm|flam|'
                         r'ghan|indian pacific|overland|spirit of|tren a las nubes|expreso del sur|white pass|'
                         r'funicul|funicolare|standseilbahn|incline|harzer|brockenbahn|molli|fichtelberg|lößnitz|weißeritz|rhb', re.I)
+PUBLIC_OK = re.compile(r'Walt Disney World Monorail|Epcot Monorail|Resort Monorail|Express Monorail|disney resort line|'
+                       r'ディズニーリゾートライン|舞浜リゾートライン', re.I)
 def own_name(n):
     """A route's name without its route description, which names stops ("Метро Салтівська лінія: Історичний музей => …")."""
     parts = re.split(r'\s*[:：]\s*', n or '', 1)
@@ -653,6 +655,8 @@ def junk(t):
     if t.get('usage') == 'tourism' or t.get('tourism') == 'attraction': svc.add('tourism')
     if t.get('service') == 'car_shuttle' or t.get('passenger') == 'no' or t.get('railway:traffic_mode') == 'freight' or \
             t.get('usage') in ('freight', 'industrial', 'military') or FREIGHT_SVC.search(txt): return 'freight'
+    if re.match(r'(?i)maintenance line', t.get('name', '')): return 'event / depot run'
+    if PUBLIC_OK.search(full): return ''        # public transit run by a resort: free or fare-paying, no park admission
     if t.get('attraction') or t.get('leisure') == 'amusement_park' or 'admission' in (t.get('fee') or '').lower() or \
             t.get('access') in ('private', 'customers', 'no', 'permit') and not t.get('network'):
         return 'private'           # a ride, or a private line of no public network (Charleroi's métro is access=no, of TEC)
