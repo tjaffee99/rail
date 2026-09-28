@@ -2,13 +2,15 @@
 
     python3 tools/world/assemble.py [--world build/world/network.json build/world/geometry.pickle]
                                     [--china build/china] [--out-data data] [--out-build build]
-                                    [--overrides tools/world/ref/overrides.json] [--prev <previous build dir>] [--lean DIR]
+                                    [--overrides tools/world/ref/overrides.json] [--prev <previous build dir>] [--lean DIR [--ways]]
 
   --prev   keep the line and station ids of that build (its ids.json, below); without it (the first build, or to
            start over) ids are positional as they always were: by country, then build order
-  --lean   read the way lists of the lines from DIR (world_lines.pickle, china_lines.pickle: made there on the first
-           run from the geometry pickles, remade when they change) instead of loading the geometry pickles: no
-           build/geometry.pickle then, only build/lines.pickle (make_tiles.py takes the ways from its --store)
+  --lean   read the way lists of the lines instead of loading the geometry pickles: the world's from the lines.pickle
+           build_world.py writes next to its geometry.pickle, else (and China's) from DIR (world_lines.pickle,
+           china_lines.pickle: made there on the first run from the geometry pickles, remade when they change); no
+           build/geometry.pickle then, only build/lines.pickle (make_tiles.py takes the ways from its --store);
+           with --ways the pickles are loaded all the same (to make DIR's caches and build/geometry.pickle again)
 
 Overrides (tools/world/ref/overrides.json): hand-checked corrections applied before anything else
   {"lines": [{"note": "why",
@@ -16,6 +18,9 @@ Overrides (tools/world/ref/overrides.json): hand-checked corrections applied bef
                         every line of that name and kind),
               "merge": [relation ids (world) / "<native>|<kind>" (China) of lines folded into it: their stops continue
                         its stop list where they meet it, else become a branch; their track and length are added],
+              "stops": ["<station name>", ...]   (the main route, by English or native name among the stations the line
+                        and the lines it merges have; branches are cleared; the entry is skipped if a name is not there),
+              "loop":  1 or 0,
               "set":   {"<line field index>": value, ...}   (FORMAT.md line fields, e.g. "4": "#E31837" colour),
               "drop":  true   (hide the line: it leaves the site, its id becomes a tombstone)}],
    "logos": {key: {name, url}}}      logos the "14" (logo key) of a "set" may name
@@ -39,9 +44,9 @@ Outputs (see tools/world/FORMAT.md)
   data/net/<shard>.json   lines and stations of one country (or part)  (loaded on demand)
   data/search.json        names for search                             (loaded on first search)
   build/full.json         every line / station / city / country with global ids (for make_tiles.py)
-  build/geometry.pickle   {'geometry': [way ids per global line id], 'ways': {way id: (coords, tags, refs)}}
-  build/lines.pickle      {'geometry': [way ids per global line id], 'src': the geometry pickles' sizes and dates}
-                          (with --lean)
+  build/geometry.pickle   {'geometry': [way ids per global line id], 'ways': {way id: (coords, tags, refs)}, 'src': what
+                          identifies the ways (build_world.py's lines.pickle, else the geometry pickles' sizes and dates)}
+  build/lines.pickle      {'geometry': [way ids per global line id], 'src'} (with --lean)
   data/logos.json        the hand-checked logos (China) plus an entry for every "wd:Q…" logo key the lines use:
                           {name, url} with the 120 px Commons thumbnail or English Wikipedia infobox logo, else
                           {name, wiki} (tools/world/wikidata.py caches), so the site makes no Wikidata calls for them
@@ -52,7 +57,7 @@ all run in the neighbouring country a few km away is filed there (Hyesan on the 
 country most of its urban lines' stations are in, and so do its urban lines that have stations there (the
 Jerusalem Light Rail is one system).
 """
-import json, math, os, pickle, re, sys, time
+import hashlib, json, math, os, pickle, re, sys, time
 from collections import Counter, defaultdict
 import numpy as np
 
@@ -165,9 +170,10 @@ def main_cluster(pts, gap_km=500, share=0.05):
 # hand-checked corrections (tools/world/ref/overrides.json, schema above): world lines by OSM relation id, China lines by
 # "native|kind"; merge lines into another (its extra stops continue the main list where they meet it), set fields, drop
 OVERRIDES = json.load(open(arg('--overrides', os.path.join(os.path.dirname(__file__), 'ref', 'overrides.json'))))
-def overrides(L, G, key, find):
-    """Apply the overrides matched by `key` ('match' or 'match_cn') to the lines L of that pipeline in place; find: the
-    line indices of each match value."""
+def overrides(L, S, G, key, find):
+    """Apply the overrides matched by `key` ('match' or 'match_cn') to the lines L (stations S) of that pipeline in
+    place; find: the line indices of each match value. An entry whose stops are not all on the line (or the lines it
+    merges) is left out for that line."""
     for o in OVERRIDES['lines']:
         if key not in o: continue
         if not find.get(o[key]): print('override:', o[key], 'not in the build'); continue
@@ -175,8 +181,14 @@ def overrides(L, G, key, find):
             la = L[a]
             if la is None: continue
             if o.get('drop'): la[10] = 1; continue
-            for b in (b for r in o.get('merge', []) for b in find.get(r, [])):
-                if b == a or L[b] is None or L[b][10]: continue
+            bs = list(dict.fromkeys(b for r in o.get('merge', []) for b in find.get(r, []) if b != a and L[b] is not None and not L[b][10]))
+            if 'stops' in o:            # by English or native name (then ignoring case), among the stations of these lines
+                have = {}
+                for x in (x for i in [a] + bs for q in [L[i][6]] + L[i][7] for x in q):
+                    for nm in S[x][:2]: have.setdefault(nm, x); have.setdefault(nm.casefold(), x)
+                stops = [have.get(n, have.get(n.casefold())) for n in o['stops']]
+                if None in stops: print('override:', o[key], 'stops not on the line:', [n for n, x in zip(o['stops'], stops) if x is None]); continue
+            for b in bs:
                 lb, main = L[b], L[a][6]
                 extra = [s for s in lb[6] if s not in main]
                 if main and main[-1] in lb[6]: la[6] = main + [s for s in lb[6][lb[6].index(main[-1]) + 1:] if s not in main]
@@ -185,6 +197,8 @@ def overrides(L, G, key, find):
                 la[9] = (la[9] or 0) + (lb[9] or 0) * len(extra) // max(1, len(lb[6]))
                 G['geometry'][a] = list(G['geometry'][a]) + [w for w in G['geometry'][b] if w not in set(G['geometry'][a])]
                 lb[10] = 1
+            if 'stops' in o: la[6], la[7] = stops, []
+            if 'loop' in o: la[8] = int(o['loop'])
             for k, v in o.get('set', {}).items(): la[int(k)] = v
 # a pale grey or white line colour (a service colour chosen for a dark timetable, e.g. #DCDDDE) vanishes on the light map:
 # drop it so the line takes its kind's colour
@@ -207,8 +221,11 @@ def stable(lkey, skey):
     def claim(new, cand):          # cand: (score, provisional, old id), best first
         for _, o, i in sorted(cand):
             if o not in new and i not in taken: new[o] = i; taken.add(i)
-    by_rel = {r: i for i, k in enumerate(PL) for r in k[2]}
-    claim(lnew, [(-n, o, i) for o, k in lkey.items() for i, n in Counter(by_rel[r] for r in k[2] if r in by_rel).items() if PL[i][0] == k[0]])
+    by_rel = defaultdict(list)     # (a relation can be the source of two lines: a railway split at a gap)
+    for i, k in enumerate(PL):
+        for r in k[2]: by_rel[r].append(i)
+    claim(lnew, [((-n, PL[i][1] != k[1]), o, i) for o, k in lkey.items()
+                 for i, n in Counter(i for r in k[2] for i in by_rel.get(r, ())).items() if PL[i][0] == k[0]])
     for loose in (False, True):  # the same name, kind and terminals (in order); then the only line of a name and kind
         f = (lambda k: (k[0],) + tuple(k[1].split('|')[:2])) if loose else (lambda k: (k[0], k[1]))
         old, new = defaultdict(list), defaultdict(list)
@@ -217,7 +234,7 @@ def stable(lkey, skey):
         for o, k in lkey.items():
             if o not in lnew: new[f(k)].append(o)
         for key, os_ in new.items():
-            if not loose or len(os_) == len(old.get(key, ())) == 1: claim(lnew, [(0, o, i) for o, i in zip(os_, old.get(key, ()))])
+            if not loose or len(os_) == len(old.get(key, ())) == 1: claim(lnew, [((0,), o, i) for o, i in zip(os_, old.get(key, ()))])
     snew, taken = {}, set()
     grid = defaultdict(list)
     for i, k in enumerate(PS): grid[(k[0], k[1], math.floor(k[3] * 100))].append(i)
@@ -227,7 +244,7 @@ def stable(lkey, skey):
         for dy in (-1, 0, 1):
             for i in grid.get((k[0], k[1], math.floor(k[3] * 100) + dy), ()):
                 d = math.hypot((PS[i][2] - k[2]) * c, PS[i][3] - k[3]) * 111000
-                if d < (300 if k[1] else 30): cand.append((d + 50 * (PS[i][4] != k[4]), o, i))
+                if d < (300 if k[1] else 30): cand.append(((d + 50 * (PS[i][4] != k[4]),), o, i))
     claim(snew, cand)
     ids = {'lines': list(PL), 'stations': list(PS), 'shards': [list(x) for x in P['shards']]}
     fresh = defaultdict(lambda: ([], []))          # country -> its new lines, stations
@@ -250,12 +267,17 @@ def stable(lkey, skey):
     return lnew, snew, ids
 
 LEAN = arg('--lean', None)
-def geometry_of(name, path):
-    """A geometry pickle; with --lean only its way lists ('ways' None), from DIR/<name>_lines.pickle when that was made
-    from this file (else made now)."""
-    src = f'{os.path.getsize(path)}:{os.stat(path).st_mtime_ns}'
+def geometry_of(name, path, network=None):
+    """A geometry pickle; with --lean only its way lists ('ways' None): from the lines.pickle build_world.py writes next to
+    it (when it came with this network.json), else from DIR/<name>_lines.pickle when that was made from this file (else
+    made now). 'src' identifies the ways (make_tiles.py keeps its store and routes while it is the same)."""
+    side = os.path.join(os.path.dirname(path), 'lines.pickle')
+    side = pickle.load(open(side, 'rb')) if network and os.path.exists(side) else None
+    if side and side['network'] != hashlib.blake2b(open(network, 'rb').read(), digest_size=16).hexdigest(): side = None
+    src = side['src'] if side else f'{os.path.getsize(path)}:{os.stat(path).st_mtime_ns}'
+    if LEAN and side and '--ways' not in sys.argv: return {'geometry': side['geometry'], 'ways': None, 'src': src}
     cache = os.path.join(LEAN, f'{name}_lines.pickle') if LEAN else None
-    if cache and os.path.exists(cache):
+    if cache and os.path.exists(cache) and '--ways' not in sys.argv:
         c = pickle.load(open(cache, 'rb'))
         if c['src'] == src: return {'geometry': c['geometry'], 'ways': None, 'src': src}
     G = pickle.load(open(path, 'rb')); G['src'] = src
@@ -270,15 +292,15 @@ def main():
     find = defaultdict(list)
     for i, l in enumerate(parts[0][1][0]):
         if l is not None: find[f'{l[1]}|{l[0]}'].append(i)
-    overrides(parts[0][1][0], parts[0][2], 'match_cn', find)
+    overrides(parts[0][1][0], parts[0][1][1], parts[0][2], 'match_cn', find)
     rels = {}                            # world line -> its OSM route relations (build_world.py sources.json)
     if '--world' in sys.argv:
         i = sys.argv.index('--world')
-        parts.append(('world', world(sys.argv[i + 1]), geometry_of('world', sys.argv[i + 2])))
+        parts.append(('world', world(sys.argv[i + 1]), geometry_of('world', sys.argv[i + 2], sys.argv[i + 1])))
         sources = os.path.join(os.path.dirname(sys.argv[i + 1]), 'sources.json')
         if os.path.exists(sources):
             rels = dict(enumerate(json.load(open(sources))))
-            overrides(parts[-1][1][0], parts[-1][2], 'match', {r: [i] for i, rs in rels.items() for r in rs})
+            overrides(parts[-1][1][0], parts[-1][1][1], parts[-1][2], 'match', {r: [i] for i, rs in rels.items() for r in rs})
     # ---- concatenate with provisional ids
     lines, stations, cities, geometry, ways, lrels = [], [], [], [], {}, []
     for name, (L, S, C), G in parts:
@@ -497,7 +519,7 @@ def main():
     if all(G['ways'] is not None for *_, G in parts):
         with open(os.path.join(B, 'geometry.pickle'), 'wb') as f:
             pk = pickle.Pickler(f, protocol=5); pk.fast = True     # no memo: it would take GBs for the planet's ways
-            pk.dump({'geometry': G2, 'ways': ways, **({'src': src} if LEAN else {})})
+            pk.dump({'geometry': G2, 'ways': ways, 'src': src})
     elif os.path.exists(os.path.join(B, 'geometry.pickle')): os.remove(os.path.join(B, 'geometry.pickle'))
     if LEAN: pickle.dump({'geometry': G2, 'src': src}, open(os.path.join(B, 'lines.pickle'), 'wb'), protocol=5)
     print('assembled', stats, 'shards', len(shards), round(time.time() - t0), 's')

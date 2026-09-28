@@ -1,13 +1,16 @@
 """Build the rail network of the rest of the world (everything but mainland China, Hong Kong and Macau, which
 come from tools/build_network.py + curate.py) from the raw pickle of tools/world/extract_world.py.
 
-    python3 tools/world/build_world.py build/world/raw.pickle build/world [-v]     (-v: list what is dropped and why;
-                                                                                 DBG=<relation ids> traces relations)
+    python3 tools/world/build_world.py build/world/raw.pickle build/world [-v] [--cache DIR]
+                                            (-v: list what is dropped and why; DBG=<relation ids> traces relations;
+                                             --cache: reuse each route's processing from the last run, see R = {} below)
 
 Writes <outdir>/network.json ({lines, stations, cities}: the records of tools/world/FORMAT.md, local ids, ISO
 country codes), <outdir>/sources.json ([OSM relation ids] per line, for audits) and <outdir>/geometry.pickle
 ({'geometry': [way ids per line], 'ways': {way id: (coords, tags, refs)}}: every railway=rail/narrow_gauge way, for
-routing gaps in the tile step, plus every way a line uses). Reads the Wikidata caches of tools/world/wikidata.py.
+routing gaps in the tile step, plus every way a line uses), and <outdir>/lines.pickle (the way lists alone, what
+identifies the ways, and a digest of network.json: assemble.py --lean reads it instead of geometry.pickle; copy it
+along). Reads the Wikidata caches of tools/world/wikidata.py.
 
 Routes    passenger route relations (route=train/subway/light_rail/tram/monorail/funicular) that are open (no lifecycle
           tags, no future opening date, their own track mostly open rail) and not junk (freight, museum / heritage /
@@ -872,9 +875,83 @@ def trim(ways, tr, t0, t1):
         return [w for w, m in zip(ways, mid.tolist()) if t0 - 300 <= m <= t1 + 300]
     return ways
 
+# --cache DIR: the loop's result for a route is kept (DIR/routes.pickle) under a digest of what the loop reads for it (its
+# tags, members, listed and guessed stops), valid while the raw pickle and the code the loop reaches are the same: the
+# top-level statements that bind the names it uses, transitively (not the route filters, which only choose ROUTES). A
+# change to the filters or to later stages reruns only the routes it lets in.
+CACHE = sys.argv[sys.argv.index('--cache') + 1] if '--cache' in sys.argv else None
+def loop_version(after):
+    import ast, hashlib, builtins
+    src = open(__file__).read(); body = ast.parse(src).body
+    loop = next(st for st in body if st.lineno > after and isinstance(st, ast.For))
+    MUT = {'update', 'add', 'append', 'extend', 'setdefault', 'pop', 'discard', 'remove', 'clear', 'insert', 'popitem'}
+    def base(n):
+        while isinstance(n, (ast.Subscript, ast.Attribute)): n = n.value
+        return n.id if isinstance(n, ast.Name) else None
+    def scan(st):     # the module-level names a statement reads and binds (or mutates); function / comprehension locals aside
+        loads, binds, own = set(), set(), set()
+        def visit(n, loc):
+            if isinstance(n, (ast.FunctionDef, ast.Lambda)):
+                g = {x for y in ast.walk(n) if isinstance(y, ast.Global) for x in y.names}
+                inner = {a.arg for a in ast.walk(n.args) if isinstance(a, ast.arg)} | \
+                    {x.id for x in ast.walk(n) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)} - g
+                binds.update(g)
+                for c in (n.body if isinstance(n.body, list) else [n.body]): visit(c, (loc or set()) | inner)
+                return
+            if isinstance(n, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                inner = (loc or set()) | {x.id for g in n.generators for x in ast.walk(g.target) if isinstance(x, ast.Name)}
+                for c in ast.iter_child_nodes(n): visit(c, inner)
+                return
+            if isinstance(n, ast.Name):
+                if isinstance(n.ctx, ast.Load): loads.add(n.id) if loc is None or n.id not in loc else None
+                elif loc is None: binds.add(n.id); own.add(n.id)
+            elif isinstance(n, (ast.Subscript, ast.Attribute)) and isinstance(n.ctx, (ast.Store, ast.Del)) or \
+                    isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in MUT:
+                x = base(n.func.value if isinstance(n, ast.Call) else n)
+                if x and (loc is None or x not in loc): binds.add(x)
+            for c in ast.iter_child_nodes(n): visit(c, loc)
+        if isinstance(st, (ast.FunctionDef, ast.ClassDef)): binds.add(st.name); visit(st, None) if isinstance(st, ast.FunctionDef) else [visit(c, set()) for c in st.body]
+        elif isinstance(st, (ast.Import, ast.ImportFrom)): binds.update((a.asname or a.name).split('.')[0] for a in st.names)
+        else:
+            visit(st, None)
+            if not isinstance(st, (ast.Assign, ast.AugAssign, ast.AnnAssign)): loads -= own     # a loop's own variables
+        return loads, binds
+    binds, uses = defaultdict(list), {}
+    for st in body:
+        uses[id(st)], b = scan(st)
+        for x in b: binds[x].append(st)
+    data = {'ROUTES', 'LISTED', 'GUESSED', 'R', 'PASS2', 'nfill', 'DBG', 'CACHE'}     # in the key, or the loop's output
+    seen, todo, keep = set(), list(uses[id(loop)]), {id(loop): loop}
+    while todo:
+        x = todo.pop()
+        if x in seen or x in data or hasattr(builtins, x) and x not in binds: continue
+        seen.add(x)
+        for st in binds.get(x, ()):
+            if st.lineno < loop.lineno and id(st) not in keep: keep[id(st)] = st; todo += uses[id(st)]
+    h = hashlib.blake2b(f'{os.path.getsize(sys.argv[1])}:{os.stat(sys.argv[1]).st_mtime_ns}'.encode(), digest_size=16)
+    for st in sorted(keep.values(), key=lambda st: st.lineno): h.update(ast.get_source_segment(src, st).encode())
+    for m in ('translit', 'english', 'countries'): h.update(open(os.path.join(os.path.dirname(__file__), m + '.py'), 'rb').read())
+    if VERBOSE: print('route cache: the loop reaches the code at lines', sorted(st.lineno for st in keep.values()))
+    return h.hexdigest()
+def rkey(rid, r):
+    import hashlib
+    st = LISTED[rid]
+    return hashlib.blake2b(pickle.dumps((rid, sorted(r['tags'].items()), r['members'], st, [x for x in st if (rid, x) in GUESSED]), protocol=5),
+                           digest_size=16).digest()
+RMEMO, RNEW = {}, {}
+if CACHE:
+    RVER = loop_version(sys._getframe().f_lineno)
+    try: RMEMO = (lambda c: c['routes'] if c['version'] == RVER else {})(pickle.load(open(os.path.join(CACHE, 'routes.pickle'), 'rb')))
+    except OSError: pass
 R = {}               # rid -> route: mode, tags, stops (nodes), ways, exp, loop, cand (stations on the track, for pass 2)
 nfill = Counter()
 for rid, r in ROUTES.items():
+    rk = rkey(rid, r) if CACHE and rid not in DBG else None
+    if rk in RMEMO:
+        R[rid] = {k: r['tags'] if k == 't' else v for k, v in RMEMO[rk][0].items()}; nfill.update(RMEMO[rk][1]); RNEW[rk] = RMEMO[rk]
+        if RMEMO[rk][2]: PASS2[rid] = track(route_ways(r))
+        continue
+    n0 = nfill.copy()
     t = r['tags']; mode = t['route']; stops = LISTED[rid]; ways = route_ways(r)
     if mode == 'train' and ways and any((rid, x) in GUESSED for x in stops):     # a station guessed for an unnamed stop must be on the track
         stops = [x for i, x in enumerate(stops) if (rid, x) not in GUESSED or dist_to_ways(ways, *NODES[x][:2]) <= (
@@ -935,6 +1012,12 @@ for rid, r in ROUTES.items():
     if few: PASS2[rid] = tr
     R[rid] = {'mode': mode, 't': t, 'stops': stops, 'bstops': bst, 'ways': ways, 'exp': exp, 'loop': loop, 'cand': cand if few else [], 'n0': len(LISTED[rid])}
     if rid in DBG: print('  DBG route', rid, t.get('name'), 'exp', exp, 'loop', loop, 'listed', [sname(n) for n in LISTED[rid]], '->', [sname(n) for n in stops])
+    if rk is not None: RNEW[rk] = ({k: None if k == 't' else v for k, v in R[rid].items()}, nfill - n0, bool(few))
+if CACHE:
+    os.makedirs(CACHE, exist_ok=True)
+    pickle.dump({'version': RVER, 'routes': RNEW}, open(os.path.join(CACHE, 'routes.pickle'), 'wb'), protocol=5)
+    log('routes reused', sum(k in RMEMO for k in RNEW), 'of', len(ROUTES))
+del RMEMO, RNEW
 log('routes processed', dict(nfill))
 
 # ---------------------------------------------------------------- station records: one per place name
@@ -1205,12 +1288,13 @@ def overlap(a, b):
     """(containment of the smaller in the other, Jaccard)"""
     com = len(a & b)
     return com / (min(len(a), len(b)) or 1), com / (len(a | b) or 1)
+SPLIT_MASTERS = {4585872}    # masters whose routes are separate lines (Walt Disney World Monorail: Express, Resort, Epcot)
 units, in_master = [], set()
 for mid, m in RELS.items():
     t = m['tags']
     if t.get('type') != 'route_master': continue
     rs = [x for typ, x, role in m['members'] if typ == 'r' and x in R and x not in in_master]
-    if not rs or '直通' in t.get('name', ''): continue
+    if not rs or '直通' in t.get('name', '') or mid in SPLIT_MASTERS: continue
     groups = []           # a master of unrelated routes (disjoint stations) -> one unit per group
     for x in sorted(rs, key=lambda x: -len(set(R[x]['sids']))):
         g = next((g for g in groups if overlap(set(R[x]['sids']), set(R[g[0]]['sids']))[0] >= 0.3), None)
@@ -1930,5 +2014,12 @@ for g in geometry:
 with open(os.path.join(OUT, 'geometry.pickle'), 'wb') as f:
     pk = pickle.Pickler(f, protocol=5); pk.fast = True       # no memo: it would take GBs for millions of arrays
     pk.dump({'geometry': geometry, 'ways': ways})
+# the way lists alone, for assemble.py --lean, with what identifies the ways (the raw pickle and the way ids): a build
+# with other lines on the same ways keeps make_tiles.py's rail network store and routes
+import hashlib
+pickle.dump({'geometry': geometry, 'network': hashlib.blake2b(open(os.path.join(OUT, 'network.json'), 'rb').read(), digest_size=16).hexdigest(),
+             'src': f'raw {os.path.getsize(sys.argv[1])}:{os.stat(sys.argv[1]).st_mtime_ns} ways ' +
+                    hashlib.blake2b(np.sort(np.fromiter(ways, np.int64, len(ways))).tobytes(), digest_size=16).hexdigest()},
+            open(os.path.join(OUT, 'lines.pickle'), 'wb'), protocol=5)
 log('lines', len(lines), dict(Counter(l[0] for l in lines)), 'stations', len(S), 'cities', len(cities),
     'countries', dict(Counter(l[12] for l in lines).most_common(12)))

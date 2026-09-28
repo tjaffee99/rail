@@ -2,6 +2,19 @@
 the network assembled by tools/world/assemble.py (see tools/world/FORMAT.md).
 
     python3 tools/make_tiles.py build/full.json build/geometry.pickle [out dir, default data/]
+                                [--store DIR] [--cache build/tiles.cache] [--prev <previous tiles.cache> <previous data/>]
+
+Incremental runs (tools/update.sh):
+  --store DIR   the rail network index (every way's nodes as flat arrays, the 0.1° cell grid; about 800 MB of .npy)
+                is kept in DIR, made there by a run on a geometry.pickle; a run on assemble.py --lean's build/lines.pickle
+                (no ways) memory-maps it instead of loading the 1.7 GB pickle
+  --cache FILE  keep what the next run can reuse: each line's routing results (gaps, joins, ends) under a digest of
+                everything they read (its stops, their positions, its track as the stage sees it), and each chunk's digest
+                (everything make_chunk reads: the chunk's features at each zoom, simplified, their properties and labels)
+  --prev C D    reuse the run that made cache C and data dir D: lines whose inputs are unchanged take its routing
+                results, chunks whose digest is unchanged are copied byte for byte from D's files, and only the .bin
+                files with a new, changed or removed chunk are written again (under new names, rail_<n>.bin after
+                D's last; the others keep theirs and their bytes). Decoded tiles are those of a full run on the same input.
 
 Every line in full.json is drawn along its OSM ways, cut to the stretch between its end stops. Layers and properties:
   rail  l primary line id · ls "|id|id|" all lines on this track · k kind (h r m l s t f)
@@ -16,7 +29,7 @@ z0-2 hold an overview: the intercity network merged and simplified, and the bigg
 Archive: chunks of tiles ("TPK1" + index + gzipped MVT), each the tiles of one zoom group under one ancestor tile
 (manifest rail.groups); see app.js getTile(). Routing and tiling use all cores.
 """
-import ctypes, gc, gzip, heapq, json, math, os, pickle, re, struct, sys, time
+import bisect, ctypes, gc, gzip, hashlib, heapq, json, math, os, pickle, re, shutil, struct, sys, time
 import multiprocessing as mp
 from collections import Counter, defaultdict
 import numpy as np
@@ -26,19 +39,38 @@ import mapbox_vector_tile
 from shapely.geometry import Point
 
 ROOT = os.path.join(os.path.dirname(__file__), '..')
-OUT = sys.argv[3] if len(sys.argv) > 3 else os.path.join(ROOT, 'data')
+POS, OPT, _a = [], {}, 1
+while _a < len(sys.argv):
+    _n = {'--store': 1, '--cache': 1, '--prev': 2}.get(sys.argv[_a])
+    if _n: OPT[sys.argv[_a]] = sys.argv[_a + 1:_a + 1 + _n]; _a += 1 + _n
+    else: POS.append(sys.argv[_a]); _a += 1
+OUT = POS[2] if len(POS) > 2 else os.path.join(ROOT, 'data')
 T0 = time.time()
 def log(*a): print(f'[{time.time() - T0:5.0f}s]', *a, flush=True)
-D = json.load(open(sys.argv[1]))
+D = json.load(open(POS[0]))
 L, S, C, CT = D['lines'], D['stations'], D['cities'], D['countries']
-G = pickle.load(open(sys.argv[2], 'rb'))
-GEOM, WAYS = G['geometry'], G['ways']
+G = pickle.load(open(POS[1], 'rb'))
+GEOM, WAYS = G['geometry'], G.get('ways')
+STORE = OPT.get('--store', [None])[0]
+SRC = open(__file__).read()
+def version(a, b=None):          # digest of the code from the section header a to b (or the end)
+    a, b = ('# ' + '-' * 64 + ' ' + x if x else None for x in (a, b))
+    return hashlib.blake2b(SRC[SRC.index(a):SRC.index(b) if b else None].encode(), digest_size=8).hexdigest()
 MINZ, OVERZ, MAXZ, EXT, BUF = 0, 3, 12, 4096, 64
 # chunks: [first zoom, last zoom, zoom of the ancestor tile a chunk holds the tiles of]; a view loads a few of up to
 # about 500 KB, and a manifest of a few thousand
 GROUPS = [[0, 2, 0], [3, 3, 1], [4, 4, 2], [5, 5, 3], [6, 6, 4], [7, 7, 5], [8, 9, 6], [10, 11, 7], [12, 12, 8]]
 FORK, NPROC = mp.get_context('fork'), os.cpu_count()
-log('lines', len(L), '· stations', len(S), '· ways', len(WAYS))
+# what a run can reuse of the last one (--prev) holds while the rail network (the geometry pickles assemble.py read) and
+# the code of the stages are the same
+NEWC = {'src': G.get('src'), 'route': version('rail network index', 'rail features') + hashlib.blake2b(SRC[SRC.index('def visible'):SRC.index('# ' + '-' * 64)].encode(), digest_size=8).hexdigest(),
+        'tile': version('tiling') + str((MINZ, OVERZ, MAXZ, EXT, BUF, GROUPS))}
+PREVC = pickle.load(open(OPT['--prev'][0], 'rb')) if '--prev' in OPT else {}
+DIGEST = '--cache' in OPT or '--prev' in OPT
+if PREVC and (not NEWC['src'] or PREVC['src'] != NEWC['src'] or PREVC['route'] != NEWC['route']):
+    log('--prev: another rail network or routing code, its routes are not reused'); PREVC.update(gaps={}, joins={}, ends={})
+if PREVC and PREVC['tile'] != NEWC['tile']: log('--prev: other tiling code, its chunks are not reused'); PREVC['chunks'] = {}
+log('lines', len(L), '· stations', len(S), '· ways', len(WAYS) if WAYS is not None else f'from {STORE}')
 
 def visible(i): return 0 <= i < len(L) and not L[i][10]
 def trim():  # hand freed memory back to the system
@@ -59,19 +91,30 @@ def stop_lists(li): return [q for q in [L[li][6]] + L[li][7] if q]
 # arrays and bucketed by 0.1° grid cell, and a search builds the graph of the cells around it.
 # WAYS then keeps only the other ways (metro, tram...): they move over in blocks, so that memory
 # peaks at little more than the loaded pickle.
+# With --store the index is saved (with the other ways, as flat arrays) and a run without ways (build/lines.pickle)
+# memory-maps it.
 CELL = 0.1
-RW = np.array([w for w, v in WAYS.items() if v[1].get('railway') in ('rail', 'narrow_gauge') and len(v[2]) >= 2], np.int64)
+STORED = ('RW', 'NV', 'OFF', 'SERV', 'XY', 'REF', 'GK', 'GO', 'GV', 'RWKM', 'OW', 'ONV', 'OOFF', 'OXY', 'OREF')
+if WAYS is None:
+    if not STORE or json.load(open(os.path.join(STORE, 'meta.json')))['src'] != G['src']:
+        sys.exit(f'{POS[1]} has no ways and --store {STORE} was not made from the geometry it came from')
+    A = {k: np.load(os.path.join(STORE, k + '.npy'), mmap_mode='r').view(np.ndarray) for k in STORED}
+    RW, NV, OFF, SERV, XY, REF, RWKM = (A[k] for k in ('RW', 'NV', 'OFF', 'SERV', 'XY', 'REF', 'RWKM'))
+    GRID = dict(zip(A['GK'].tolist(), np.split(np.array(A['GV']), A['GO'].tolist())))
+    WAYS = {w: (A['OXY'][o:o + n], None, A['OREF'][o:o + n]) for w, o, n in zip(A['OW'].tolist(), A['OOFF'].tolist(), A['ONV'].tolist())}
+else:
+    RW = np.array([w for w, v in WAYS.items() if v[1].get('railway') in ('rail', 'narrow_gauge') and len(v[2]) >= 2], np.int64)
+    NV = np.array([len(WAYS[w][2]) for w in RW], np.int64)
+    OFF = np.cumsum(NV) - NV
+    SERV = np.array([bool(WAYS[w][1].get('service')) for w in RW], bool)
+    XY, REF = [np.zeros((0, 2))], [np.zeros(0, np.int64)]
+    for a in range(0, len(RW), 200000):
+        ws = RW[a:a + 200000].tolist()
+        XY.append(np.concatenate([WAYS[w][0] for w in ws], dtype=np.float64)); REF.append(np.concatenate([WAYS[w][2] for w in ws], dtype=np.int64))
+        for w in ws: del WAYS[w]
+        trim()
+    XY, REF = np.concatenate(XY), np.concatenate(REF)
 IX = dict(zip(RW.tolist(), range(len(RW))))
-NV = np.array([len(WAYS[w][2]) for w in RW], np.int64)
-OFF = np.cumsum(NV) - NV
-SERV = np.array([bool(WAYS[w][1].get('service')) for w in RW], bool)
-XY, REF = [np.zeros((0, 2))], [np.zeros(0, np.int64)]
-for a in range(0, len(RW), 200000):
-    ws = RW[a:a + 200000].tolist()
-    XY.append(np.concatenate([WAYS[w][0] for w in ws], dtype=np.float64)); REF.append(np.concatenate([WAYS[w][2] for w in ws], dtype=np.int64))
-    for w in ws: del WAYS[w]
-    trim()
-XY, REF = np.concatenate(XY), np.concatenate(REF)
 def coords(w):
     i = IX.get(w)
     return XY[OFF[i]:OFF[i] + NV[i]] if i is not None else np.asarray(WAYS[w][0], np.float64).reshape(-1, 2)
@@ -84,21 +127,56 @@ def cells(lon0, lat0, lon1, lat1):
     ix = np.arange(math.floor(lon0 / CELL) - 1, math.floor(lon1 / CELL) + 2)
     iy = np.arange(math.floor(lat0 / CELL) - 1, math.floor(lat1 / CELL) + 2)
     return ckey(ix[:, None], iy[None, :]).ravel().tolist()
-_k = ckey(*np.floor(XY / CELL).astype(np.int64).T) * len(RW) + np.repeat(np.arange(len(RW)), NV)
-_k = np.unique(_k[np.r_[True, _k[1:] != _k[:-1]]])
-_cut = np.flatnonzero(np.diff(_k // len(RW))) + 1
-GRID = dict(zip((_k[np.r_[0, _cut]] // len(RW)).tolist(), np.split(_k % len(RW), _cut))) if len(_k) else {}
-del _k, _cut
-# the length of each line's own track (km), to pick the line a shared stretch is drawn as
-_d = np.hypot(np.diff(XY[:, 0]) * np.cos(np.radians(XY[1:, 1])), np.diff(XY[:, 1])) * 111.2
-_d[OFF[1:] - 1] = 0
-RWKM = np.add.reduceat(np.r_[_d, 0], OFF) if len(RW) else np.zeros(0)
+if 'GRID' not in globals():
+    _k = ckey(*np.floor(XY / CELL).astype(np.int64).T) * len(RW) + np.repeat(np.arange(len(RW)), NV)
+    _k = np.unique(_k[np.r_[True, _k[1:] != _k[:-1]]])
+    _cut = np.flatnonzero(np.diff(_k // len(RW))) + 1
+    GRID = dict(zip((_k[np.r_[0, _cut]] // len(RW)).tolist(), np.split(_k % len(RW), _cut))) if len(_k) else {}
+    del _k, _cut
+    # the length of each line's own track (km), to pick the line a shared stretch is drawn as
+    _d = np.hypot(np.diff(XY[:, 0]) * np.cos(np.radians(XY[1:, 1])), np.diff(XY[:, 1])) * 111.2
+    _d[OFF[1:] - 1] = 0
+    RWKM = np.add.reduceat(np.r_[_d, 0], OFF) if len(RW) else np.zeros(0)
+    del _d
+    if STORE and G.get('src') and not (os.path.exists(os.path.join(STORE, 'meta.json')) and
+                                       json.load(open(os.path.join(STORE, 'meta.json')))['src'] == G['src']):
+        os.makedirs(STORE, exist_ok=True)
+        ow = list(WAYS); oxy = [np.asarray(WAYS[w][0], np.float64).reshape(-1, 2) for w in ow]
+        onv = np.array([len(x) for x in oxy], np.int64); gk = list(GRID)
+        A = {'RW': RW, 'NV': NV, 'OFF': OFF, 'SERV': SERV, 'XY': XY, 'REF': REF, 'RWKM': RWKM,
+             'GK': np.array(gk, np.int64), 'GO': np.cumsum([len(GRID[k]) for k in gk], dtype=np.int64)[:-1],
+             'GV': np.concatenate([GRID[k] for k in gk] or [np.zeros(0, np.int64)]), 'OW': np.array(ow, np.int64), 'ONV': onv,
+             'OOFF': np.cumsum(onv) - onv, 'OXY': np.concatenate(oxy or [np.zeros((0, 2))]),
+             'OREF': np.concatenate([np.asarray(WAYS[w][2], np.int64) for w in ow] or [np.zeros(0, np.int64)])}
+        if os.path.exists(os.path.join(STORE, 'meta.json')): os.remove(os.path.join(STORE, 'meta.json'))
+        for k in STORED: np.save(os.path.join(STORE, k + '.npy'), A[k])
+        json.dump({'src': G['src']}, open(os.path.join(STORE, 'meta.json'), 'w'))
+        del A, oxy
+        log('rail network index saved to', STORE)
 def way_km(w):
     if w in IX: return float(RWKM[IX[w]])
     c = coords(w); return float(np.hypot(np.diff(c[:, 0]) * np.cos(np.radians(c[1:, 1])), np.diff(c[:, 1])).sum() * 111.2)
 LEN = [sum(way_km(w) for w in ways if known(w)) if visible(li) else 0 for li, ways in enumerate(GEOM)]
-del _d
 log('rail network index:', len(RW), 'ways,', len(XY), 'nodes,', len(GRID), 'cells')
+
+# Each routing stage below reads, per line, only its stops, their positions and its own track as the stage sees it
+# (and the rail network): with --prev, a line whose inputs have the digest they had in the last run takes that
+# run's result, and the main process applies the results in the same order as ever.
+def digest(*a): return hashlib.blake2b(pickle.dumps(a, protocol=5), digest_size=16).digest()
+def stop_sig(li): return [(q, [S[x][2:4] for x in q]) for q in stop_lists(li)]
+def ways_sig(ws): return np.array(list(ws), np.int64).tobytes()
+def par(stage, fn, todo, key, chunksize):
+    keys = [key(li) for li in todo] if DIGEST else [None] * len(todo)
+    old = PREVC.get(stage, {})
+    miss = [li for li, k in zip(todo, keys) if k not in old]
+    got = {}
+    if miss:
+        settle()
+        with FORK.Pool(NPROC) as pool: got = dict(zip(miss, pool.imap(fn, miss, chunksize=chunksize)))
+    res = [got[li] if li in got else old[k] for li, k in zip(todo, keys)]
+    if DIGEST: NEWC[stage] = dict(zip(keys, res))
+    if PREVC: log(f'{stage}: {len(miss)} of {len(todo)} lines routed, the rest reused')
+    return res
 
 def graph(cks, c, service, keep=None):
     """Graph of the rail ways in some grid cells (service tracks at 1.5x their length, or left out;
@@ -192,12 +270,10 @@ for li, ways in enumerate(GEOM):
         for w in ways: way_lines[w].add(li)
 todo = [li for li in range(len(L)) if visible(li) and L[li][0] in 'hrs']
 filled = 0
-settle()
-with FORK.Pool(NPROC) as pool:
-    for li, got in zip(todo, pool.imap(gaps, todo, chunksize=4)):
-        for ws in got:
-            for w in ws: way_lines[w].add(li)
-            filled += 1
+for li, got in zip(todo, par('gaps', gaps, todo, lambda li: digest(ways_sig(GEOM[li]), stop_sig(li)), 4)):
+    for ws in got:
+        for w in ws: way_lines[w].add(li)
+        filled += 1
 log('gaps between stops routed along the rail network:', filled)
 
 # Join each intercity line's track into one piece: from every piece, search the rail network
@@ -283,20 +359,18 @@ line_ways = defaultdict(set)
 for w, ls in way_lines.items():
     for li in ls: line_ways[li].add(w)
 todo = [li for li in line_ways if L[li][0] in 'hrs']
-settle()
 bridged = 0
-with FORK.Pool(NPROC) as pool:
-    for li, (added, drop) in zip(todo, pool.imap(joins, todo, chunksize=4)):
-        for path in added:
-            if path[0] == 'bridge':       # a straight way of its own between the two nodes
-                w = -1 - bridged; bridged += 1; WAYS[w] = (path[1], {'railway': 'rail'}, np.array(path[2:], np.int64)); path = [w]
-            for w in path: way_lines[w].add(li); line_ways[li].add(w)
-            joined += 1
-        for a in drop:
-            for w in a:
-                way_lines[w].discard(li); line_ways[li].discard(w)
-                if not way_lines[w]: del way_lines[w]
-            dropped += 1
+for li, (added, drop) in zip(todo, par('joins', joins, todo, lambda li: digest(ways_sig(line_ways[li]), stop_sig(li)), 4)):
+    for path in added:
+        if path[0] == 'bridge':       # a straight way of its own between the two nodes
+            w = -1 - bridged; bridged += 1; WAYS[w] = (path[1], {'railway': 'rail'}, np.array(path[2:], np.int64)); path = [w]
+        for w in path: way_lines[w].add(li); line_ways[li].add(w)
+        joined += 1
+    for a in drop:
+        for w in a:
+            way_lines[w].discard(li); line_ways[li].discard(w)
+            if not way_lines[w]: del way_lines[w]
+        dropped += 1
 log('line pieces joined along the rail network:', joined, f'({bridged} straight across breaks in the data)', '· stray pieces without a station left out:', dropped)
 del GRID, _routes
 
@@ -356,16 +430,16 @@ def ends(li):
 part = defaultdict(list)         # way -> [(line, kept segments)] for lines using only part of it
 todo = [li for li in line_ways if L[li][6]]
 cut = cutkm = 0
-settle()
-with FORK.Pool(NPROC) as pool:
-    for li, got in zip(todo, pool.imap(ends, todo, chunksize=8)):
-        if got: cut += 1
-        for w, seg in got.items():
-            way_lines[w].discard(li)
-            if not way_lines[w]: del way_lines[w]
-            if seg is not None: part[w].append((li, np.frombuffer(seg, bool)))
-            c = coords(w); km = np.hypot(np.diff(c[:, 0]) * cosl(c[0, 1]), np.diff(c[:, 1])) * 111.2
-            cutkm += km.sum() - (km[np.frombuffer(seg, bool)].sum() if seg is not None else 0)
+def ends_sig(li):   # bridges (negative ids) are numbered in line order: their nodes too
+    return digest(ways_sig(line_ways[li]), stop_sig(li), L[li][8], [(w, WAYS[w][0].tobytes(), WAYS[w][2].tobytes()) for w in line_ways[li] if w < 0])
+for li, got in zip(todo, par('ends', ends, todo, ends_sig, 8)):
+    if got: cut += 1
+    for w, seg in got.items():
+        way_lines[w].discard(li)
+        if not way_lines[w]: del way_lines[w]
+        if seg is not None: part[w].append((li, np.frombuffer(seg, bool)))
+        c = coords(w); km = np.hypot(np.diff(c[:, 0]) * cosl(c[0, 1]), np.diff(c[:, 1])) * 111.2
+        cutkm += km.sum() - (km[np.frombuffer(seg, bool)].sum() if seg is not None else 0)
 log(f'lines cut to their end stops: {cut}, {cutkm:.0f} km of track left out')
 del line_ways
 
@@ -723,8 +797,38 @@ def make_chunk(code):
         t = encode(layers); entries.append(((z << 26) | (x << 13) | y, t)); sizes[z] += (1, len(t))
     return code, write_chunk(entries), sizes
 
+# --cache / --prev: each chunk's digest covers everything make_chunk reads for it: per zoom and rail feature its
+# simplified geometry, properties and label, per station its properties and position, and the tiles each goes to
+def hsh(b): return hashlib.blake2b(b, digest_size=16).digest()
+def rail_digests(z):
+    pj, lab = PJ[z < OVERZ], LB if 5 <= z <= 11 else None
+    return z, b''.join(hsh(w + pj[i] + (lab[i] if lab else b'')) if w is not None else bytes(16) for i, w in enumerate(shapely.to_wkb(GEO[z]).tolist()))
+DIG, PD = {}, OPT['--prev'][1] if '--prev' in OPT else None
+if DIGEST:
+    PJ = {True: [json.dumps(p).encode() for p in FP0], False: [json.dumps(p).encode() for p in FP]}
+    LB = [json.dumps([L[p['l']][11] or L[p['l']][2] or L[p['l']][1], L[p['l']][1]]).encode() if p['k'] in 'hr' and not SHARED[i] else b''
+          for i, p in enumerate(FP)]
+    settle()
+    with FORK.Pool(NPROC) as pool: RD = {z: np.frombuffer(b, np.uint8).reshape(-1, 16) for z, b in pool.imap_unordered(rail_digests, range(MINZ, MAXZ + 1))}
+    SD = np.frombuffer(b''.join(hsh(json.dumps(p).encode() + struct.pack('<dd', SX[i], SY[i])) for i, p in enumerate(SP)), np.uint8).reshape(-1, 16)
+    for code, parts in CH.items():
+        h = hashlib.blake2b(digest_size=16)
+        for z, kind, idx, tx, ty in parts:
+            h.update(bytes([z]) + kind.encode()); h.update((RD[z] if kind == 'r' else SD)[idx].tobytes()); h.update(tx.tobytes()); h.update(ty.tobytes())
+        DIG[code] = h.digest()
+    NEWC['chunks'] = DIG
+    log('chunk digests', len(DIG))
+def code_of(key): g, x, y = map(int, key[1:].split('_')); return (g << 26) | (x << 13) | y
+PMAN = {code_of(k): v for k, v in json.load(open(os.path.join(PD, 'manifest.json')))['rail']['chunks'].items()} if PD else {}
+_pf = {}
+def prev_chunk(code):
+    fn, off, n = PMAN[code]
+    if fn not in _pf: _pf[fn] = open(os.path.join(PD, 'tiles', fn), 'rb').read()
+    return _pf[fn][off:off + n]
+same = {c for c in CH if c in PMAN and PREVC.get('chunks', {}).get(c) == DIG.get(c)} if PD else set()
+
 settle()
-codes = sorted(CH, key=lambda k: -sum(len(p[2]) for p in CH[k]))
+codes = sorted(set(CH) - same, key=lambda k: -sum(len(p[2]) for p in CH[k]))
 blobs, sizes = {}, np.zeros((MAXZ + 1, 2), np.int64)
 log('encoding', len(codes), 'chunks on', NPROC, 'processes')
 with FORK.Pool(NPROC) as pool:
@@ -732,24 +836,51 @@ with FORK.Pool(NPROC) as pool:
         blobs[code] = blob; sizes += sz
         if len(blobs) % max(1, len(codes) // 10) == 0: log(f'  {len(blobs)}/{len(codes)} chunks')
 
-# chunks go into files of about 1.5 MB, neighbours together (the site reads a chunk by its byte range)
+# chunks go into files of about 1.5 MB, neighbours together (the site reads a chunk by its byte range). With --prev,
+# every chunk stays in its file (a new one goes into the file of the chunk before it), a file whose chunks are all
+# unchanged is copied as it is, and the others are written again, under new names.
 def morton(x, y): return sum(((x >> i & 1) << (2 * i + 1)) | ((y >> i & 1) << (2 * i)) for i in range(13))
+def order(k): return (k >> 26, morton((k >> 13) & 0x1fff, k & 0x1fff))
 TDIR = os.path.join(OUT, 'tiles')
+if PD: assert os.path.realpath(os.path.join(PD, 'tiles')) != os.path.realpath(TDIR), 'write the update to another data dir'
 os.makedirs(TDIR, exist_ok=True)
 for f in os.listdir(TDIR): os.remove(os.path.join(TDIR, f))
+for c in [c for c in blobs if c in PMAN and blobs[c] == prev_chunk(c)]: del blobs[c]; same.add(c)   # encoded again, same bytes
 man, fi, buf, pos = {}, 0, [], 0
 def flush():
     global fi, buf, pos
     if buf:
         open(os.path.join(TDIR, f'rail_{fi}.bin'), 'wb').write(b''.join(buf)); fi += 1; buf, pos = [], 0
-for code in sorted(blobs, key=lambda k: (k >> 26, morton((k >> 13) & 0x1fff, k & 0x1fff))):
-    blob = blobs[code]
-    if pos and pos + len(blob) > 1_500_000: flush()
-    man[chunk_key(code)] = [f'rail_{fi}.bin', pos, len(blob)]; buf.append(blob); pos += len(blob)
-flush()
+if PMAN:
+    pk = sorted(PMAN, key=order); po = [order(c) for c in pk]
+    home, was = defaultdict(list), defaultdict(set)
+    for c, v in PMAN.items(): was[v[0]].add(c)
+    for c in CH: home[PMAN[c][0] if c in PMAN else PMAN[pk[max(0, bisect.bisect(po, order(c)) - 1)]][0]].append(c)
+    fi = 1 + max((int(m.group(1)) for m in (re.fullmatch(r'rail_(\d+)\.bin', f) for f in was) if m), default=-1)
+    copied = []
+    for f, cs in sorted(home.items(), key=lambda x: order(min(x[1], key=order))):
+        if set(cs) == was[f] and not any(c in blobs for c in cs):
+            shutil.copyfile(os.path.join(PD, 'tiles', f), os.path.join(TDIR, f)); copied.append(f)
+            for c in cs: man[c] = PMAN[c]
+            continue
+        for c in sorted(cs, key=order):
+            blob = blobs[c] if c in blobs else prev_chunk(c)
+            man[c] = [f'rail_{fi}.bin', pos, len(blob)]; buf.append(blob); pos += len(blob)
+        flush()
+    man = {chunk_key(c): man[c] for c in sorted(man, key=order)}
+    log(f'{len(blobs)} chunks new or changed, {len(PMAN) - len(set(PMAN) & set(CH))} gone, {len(same)} copied; '
+        f'{len(set(v[0] for v in man.values())) - len(copied)} files written, {len(copied)} kept')
+else:
+    for code in sorted(blobs, key=order):
+        blob = blobs[code]
+        if pos and pos + len(blob) > 1_500_000: flush()
+        man[chunk_key(code)] = [f'rail_{fi}.bin', pos, len(blob)]; buf.append(blob); pos += len(blob)
+    flush()
 json.dump({'rail': {'minzoom': MINZ, 'maxzoom': MAXZ, 'groups': GROUPS, 'chunks': man}},
           open(os.path.join(OUT, 'manifest.json'), 'w'), separators=(',', ':'))
-for z in range(MINZ, MAXZ + 1): log(f'z{z}: {sizes[z][0]} tiles, {sizes[z][1] / 1e6:.1f} MB')
-cs = np.array([len(b) for b in blobs.values()])
-log(f'total {sizes[:, 0].sum()} tiles, {sizes[:, 1].sum() / 1e6:.1f} MB in {fi} files, {len(man)} chunks '
+if '--cache' in OPT:
+    pickle.dump(NEWC, open(OPT['--cache'][0] + '.tmp', 'wb'), protocol=5); os.replace(OPT['--cache'][0] + '.tmp', OPT['--cache'][0])
+for z in range(MINZ, MAXZ + 1): log(f'z{z}: {sizes[z][0]} tiles{" encoded" if PD else ""}, {sizes[z][1] / 1e6:.1f} MB')
+cs = np.array([len(b) for b in blobs.values()] or [0])
+log(f'total {sizes[:, 0].sum()} tiles{" encoded" if PD else ""}, {sizes[:, 1].sum() / 1e6:.1f} MB in {fi} files, {len(man)} chunks '
     f'(largest {cs.max() / 1e6:.2f} MB, {(cs > 500_000).sum()} over 500 KB)')

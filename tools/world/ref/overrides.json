@@ -14,6 +14,46 @@
     "13": "Caltrain",
     "14": "caltrain"
    }
+  },
+  {
+   "note": "Walt Disney World Monorail (master 4585872, split by build_world.py SPLIT_MASTERS): the Express runs non-stop between the Transportation and Ticket Center and the Magic Kingdom",
+   "match": 3203456,
+   "stops": [
+    "Transportation and Ticket Center",
+    "Magic Kingdom"
+   ],
+   "set": {
+    "1": "Express Monorail",
+    "2": "Express Monorail"
+   }
+  },
+  {
+   "note": "Walt Disney World Monorail: the Resort Monorail calls at the resorts on its loop round the Seven Seas Lagoon",
+   "match": 3203455,
+   "stops": [
+    "Transportation and Ticket Center",
+    "The Polynesian Village",
+    "The Grand Floridian",
+    "Magic Kingdom",
+    "Disney's Contemporary Resort"
+   ],
+   "loop": 1,
+   "set": {
+    "1": "Resort Monorail",
+    "2": "Resort Monorail"
+   }
+  },
+  {
+   "note": "Walt Disney World Monorail: the Epcot Monorail runs between the Transportation and Ticket Center and EPCOT",
+   "match": 3203449,
+   "stops": [
+    "Transportation and Ticket Center",
+    "EPCOT"
+   ],
+   "set": {
+    "1": "Epcot Monorail",
+    "2": "Epcot Monorail"
+   }
   }
  ],
  "logos": {

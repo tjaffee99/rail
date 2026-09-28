@@ -14,7 +14,8 @@ planet-latest.osm.pbf (streamed twice, never stored)
           osmium merge planet1 planet2                                                                    -> merged.pbf
 tools/world/extract_world.py merged.pbf build/world/raw.pickle
 tools/world/build_world.py   build/world/raw.pickle build/world         -> build/world/network.json, build/world/geometry.pickle,
-                                                                            build/world/sources.json (OSM relations per line)
+             [--cache DIR: reuse each route's processing]                   build/world/sources.json (OSM relations per line),
+                                                                            build/world/lines.pickle (way lists, for --lean)
 tools/world/wikidata.py wikilogos build/world/network.json              -> Wikipedia infobox logos of the logo keys (cache)
 China:  tools/build_network.py + tools/curate.py                         -> build/china/network.json, build/china/geometry.pickle
 tools/world/assemble.py --world build/world/network.json build/world/geometry.pickle
@@ -24,6 +25,52 @@ tools/make_tiles.py build/full.json build/geometry.pickle                -> data
 ```
 
 `build/` is not committed. `build/DATE` holds the data date shown on the site (YYYY-MM-DD).
+
+## Fixes without a rebuild: overrides, stable ids, incremental tiles
+
+`tools/world/ref/overrides.json` holds hand-checked corrections that assemble.py applies to the lines before anything
+else (schema at the top of assemble.py):
+
+```
+{"lines": [{"note": "why", "match": <OSM relation id of a route of a world line> | "match_cn": "<native name>|<kind>",
+            "merge": [relation ids | "<native>|<kind>"], "stops": ["<station name>", ...], "loop": 0|1,
+            "set": {"<line field index>": value}, "drop": true}],
+ "logos": {key: {name, url}}}
+```
+
+`match` finds a world line by any of its route relations (build/world/sources.json); `match_cn` every China line of
+that native name and kind. `merge` folds lines into it (stops continue its list where they meet it, else a branch; track
+and km added), `stops` sets its main stop list by English or native station names among its (and the merged lines')
+stations and clears its branches (the entry is skipped when a name is not there), `loop` sets field 8, `set` sets
+fields, `drop` hides the line.
+
+**Stable ids.** `assemble.py --prev <previous build dir>` keeps the ids of that build (its `build/ids.json`: per id the
+key it was matched by, the shard table): a world line keeps its id by its OSM route relations (most in common), then by
+native name + kind + terminal names, then by the only line of that name and kind; a station by native name within 300 m
+(unnamed: 30 m); always within the same country. Ids nothing takes become **tombstones**, kept in their shard:
+line `['', '', '', '', '', -1, [], [], 0, 0, 1, '', -1, '', '']` (hidden, no city, no country), station
+`['', '', 0, 0, '', [], [], -1, -1]`; the search index, the stats and the tiles leave them out, and the site's country and
+city views never list them (they filter lines by country / city). New lines and stations get ids after the last ones,
+in one more shard per country, named `<iso><n>.json` after the country's others (so `countryShards()` finds it), appended
+to the shard table. `nLines` / `nStations` count tombstones too; `stats` do not. Without `--prev` (or to start over)
+ids are positional, by country then build order, as before.
+
+**Incremental update** (`tools/update.py PREV OUT`, one-line fixes in about a minute):
+
+```
+tools/world/assemble.py --lean build/lean --prev PREV/build ...   way lists from build/lean (no geometry pickles loaded)
+                                                                   -> OUT/data/*.json, OUT/build/{full.json, ids.json, lines.pickle}
+tools/make_tiles.py OUT/build/full.json OUT/build/lines.pickle OUT/data --store build/lean/store
+                    --prev PREV/build/tiles.cache PREV/data --cache OUT/build/tiles.cache
+```
+
+The store is the rail network index make_tiles builds (flat node arrays of all ways, the cell grid; about 800 MB of
+memory-mapped `.npy`), saved by a full run with `--store`. `tiles.cache` keeps each line's routing results (gap routes,
+joins, end cuts) under a digest of everything the stage reads for that line, and each chunk's digest (the simplified
+geometry, properties and labels of its features at each zoom, its stations): a run with `--prev` routes only lines
+whose inputs changed, encodes only chunks whose digest changed, copies the other chunks byte for byte and writes only
+the `.bin` files holding a new, changed or removed chunk, under new names (`rail_<n>.bin` after the last). Decoded
+tiles are those a full run makes from the same `full.json`.
 
 ## Raw pickle (`extract_world.py`)
 
