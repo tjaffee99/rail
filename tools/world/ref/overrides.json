@@ -226,12 +226,350 @@
    "drop": true
   },
   {
-   "note": "Béchar – Tindouf passenger line (opened Feb 2026), not its mining name [africa audit]",
-   "match": 20052232,
+   "note": "Transgabonais: one line Owendo – Moanda; OSM maps it with no relation and its unmapped track comes apart in four pieces (the tile step draws the track between them) [audit follow-up]",
+   "match": -101608193,
+   "merge": [
+    -248999604,
+    -88502836,
+    -88497538
+   ],
+   "stops": [
+    "Owendo Viré",
+    "Ntoum",
+    "M'Bel",
+    "Oyan",
+    "Abanga",
+    "Ndjolé",
+    "Alembé",
+    "Otoumbi",
+    "Bissouma",
+    "Ayem",
+    "Lopé",
+    "Offoué",
+    "Booué",
+    "Ivindo",
+    "Mouyabi",
+    "Milolé",
+    "Lastourville",
+    "Doumé",
+    "Lifouta",
+    "Moanda"
+   ],
    "set": {
-    "1": "بشار – تندوف",
-    "2": "Béchar – Tindouf"
+    "1": "Transgabonais",
+    "2": "Transgabonais",
+    "13": "SETRAG"
    }
+  },
+  {
+   "note": "stub: Chittagong to Nazirhut Railway [BD] connects to no other line (unmapped track, 3 stations, 7 km)",
+   "match": -30665792,
+   "drop": true
+  },
+  {
+   "note": "stub: chittagong nazirhat narrow gauge railway [BD] connects to no other line (unmapped track, 3 stations, 8 km)",
+   "match": -30665990,
+   "drop": true
+  },
+  {
+   "note": "stub: Burimari–Lalmonirhat–Parbatipur line [BD] connects to no other line (unmapped track, 3 stations, 39 km)",
+   "match": -169849898,
+   "drop": true
+  },
+  {
+   "note": "stub: Main Line [BD] connects to no other line (unmapped track, 3 stations, 11 km)",
+   "match": -133750621,
+   "drop": true
+  },
+  {
+   "note": "stub: Sirajganj Bazar – Kaliya Haripur [BD] connects to no other line (unmapped track, 3 stations, 5 km)",
+   "match": -133753816,
+   "drop": true
+  },
+  {
+   "note": "stub: Chandpur – Laksam Railway [BD] connects to no other line (unmapped track, 3 stations, 30 km)",
+   "match": -261568130,
+   "drop": true
+  },
+  {
+   "note": "stub: Oued Mougras – Mechta Takouka [DZ] connects to no other line (unmapped track, 3 stations, 11 km)",
+   "match": -210614789,
+   "drop": true
+  },
+  {
+   "note": "stub: Jijel – Aïn Kechra [DZ] connects to no other line (unmapped track, 3 stations, 62 km)",
+   "match": -233922964,
+   "drop": true
+  },
+  {
+   "note": "stub: Gandhipuram – Pocharam [IN] connects to no other line (unmapped track, 5 stations, 14 km)",
+   "match": -59827119,
+   "drop": true
+  },
+  {
+   "note": "stub: Tolasampatti – Mettur Dam [IN] connects to no other line (unmapped track, 3 stations, 20 km)",
+   "match": -84653681,
+   "drop": true
+  },
+  {
+   "note": "stub: Noamundi – Barbil [IN] connects to no other line (unmapped track, 3 stations, 21 km)",
+   "match": -160440235,
+   "drop": true
+  },
+  {
+   "note": "stub: Dekargaon – Thakurbari [IN] connects to no other line (unmapped track, 3 stations, 16 km)",
+   "match": -168274951,
+   "drop": true
+  },
+  {
+   "note": "stub: Ramdas – Dera Baba Nanak [IN] connects to no other line (unmapped track, 3 stations, 11 km)",
+   "match": -199784594,
+   "drop": true
+  },
+  {
+   "note": "stub: Marikuppam – Chinnakotte [IN] connects to no other line (unmapped track, 5 stations, 10 km)",
+   "match": -239053694,
+   "drop": true
+  },
+  {
+   "note": "stub: Pabbapuram – Pendlimarri [IN] connects to no other line (unmapped track, 3 stations, 16 km)",
+   "match": -553685805,
+   "drop": true
+  },
+  {
+   "note": "stub: Meiktila – Tada-U [MM] connects to no other line (unmapped track, 3 stations, 125 km)",
+   "match": -40293039,
+   "drop": true
+  },
+  {
+   "note": "stub: Main Line: Pyeabhvy – Nneanrm [MM] connects to no other line (unmapped track, 2 stations, 19 km)",
+   "match": -106790733,
+   "drop": true
+  },
+  {
+   "note": "stub: Kyaukpadaung – Mrephrukn [MM] connects to no other line (unmapped track, 2 stations, 37 km)",
+   "match": -110014064,
+   "drop": true
+  },
+  {
+   "note": "stub: Madaya – Oe Bo [MM] connects to no other line (unmapped track, 3 stations, 22 km)",
+   "match": -441285931,
+   "drop": true
+  },
+  {
+   "note": "stub: Main Line: Ywa Daw – Kyi Daung Gan [MM] connects to no other line (unmapped track, 3 stations, 9 km)",
+   "match": -971090067,
+   "drop": true
+  },
+  {
+   "note": "stub: Gökdepe – Bäherden [TM] connects to no other line (unmapped track, 3 stations, 59 km)",
+   "match": -25247089,
+   "drop": true
+  },
+  {
+   "note": "stub: Khimikiv – Osota [UA] connects to no other line (unmapped track, 6 stations, 10 km)",
+   "match": -54901668,
+   "drop": true
+  },
+  {
+   "note": "stub: Bakhmach — Hrebinka: Bohdanivka – Zaizd [UA] connects to no other line (unmapped track, 5 stations, 13 km)",
+   "match": -165756641,
+   "drop": true
+  },
+  {
+   "note": "stub: Hudzivka – Dashukivka [UA] connects to no other line (unmapped track, 3 stations, 33 km)",
+   "match": -175430154,
+   "drop": true
+  },
+  {
+   "note": "stub: Brovky – Andrushivka [UA] connects to no other line (unmapped track, 3 stations, 20 km)",
+   "match": -216153834,
+   "drop": true
+  },
+  {
+   "note": "stub: Hryhorivka – Kachanivka [UA] connects to no other line (unmapped track, 4 stations, 20 km)",
+   "match": -228195059,
+   "drop": true
+  },
+  {
+   "note": "stub: Kremenchuk-Romodan [UA] connects to no other line (unmapped track, 3 stations, 4 km)",
+   "match": -259223921,
+   "drop": true
+  },
+  {
+   "note": "stub: Bodakva – Sencha [UA] connects to no other line (unmapped track, 3 stations, 12 km)",
+   "match": -627457588,
+   "drop": true
+  },
+  {
+   "note": "stub: Samarkand-Qarshi [UZ] connects to no other line (unmapped track, 3 stations, 46 km)",
+   "match": -22821643,
+   "drop": true
+  },
+  {
+   "note": "stub: Caminhos de Ferro de Benguela [AO] connects to no other line (unmapped track, 4 stations, 13 km)",
+   "match": -109237853,
+   "drop": true
+  },
+  {
+   "note": "stub: Cavaco – Bimbas [AO] connects to no other line (unmapped track, 5 stations, 0 km)",
+   "match": -173623361,
+   "drop": true
+  },
+  {
+   "note": "stub: Poradah Junction – Kushtia [BD] connects to no other line (unmapped track, 4 stations, 13 km)",
+   "match": -133750624,
+   "drop": true
+  },
+  {
+   "note": "stub: Duku – Padang [ID] connects to no other line (unmapped track, 6 stations, 20 km)",
+   "match": -140680006,
+   "drop": true
+  },
+  {
+   "note": "stub: Jalur KA Bandara Kualanamu [ID] connects to no other line (unmapped track, 3 stations, 10 km)",
+   "match": -257734507,
+   "drop": true
+  },
+  {
+   "note": "stub: Charduar – Bhalukpong [IN] connects to no other line (unmapped track, 3 stations, 26 km)",
+   "match": -69409845,
+   "drop": true
+  },
+  {
+   "note": "stub: Nepal Relve [NP] connects to no other line (unmapped track, 3 stations, 13 km)",
+   "match": -343932022,
+   "drop": true
+  },
+  {
+   "note": "stub: Karachi Sarkalr Rilue [PK] connects to no other line (unmapped track, 6 stations, 0 km)",
+   "match": -26610690,
+   "drop": true
+  },
+  {
+   "note": "stub: Marivka – Sokolohirsk [UA] connects to no other line (unmapped track, 3 stations, 8 km)",
+   "match": -111976573,
+   "drop": true
+  },
+  {
+   "note": "stub: Mochalynskyi – Dronove [UA] connects to no other line (unmapped track, 4 stations, 8 km)",
+   "match": -125204040,
+   "drop": true
+  },
+  {
+   "note": "stub: Kolpakove – Shchotove [UA] connects to no other line (unmapped track, 4 stations, 10 km)",
+   "match": -516892000,
+   "drop": true
+  },
+  {
+   "note": "stub: Ulipur – Kurigram [BD] connects to no other line (unmapped track, 2 stations, 18 km)",
+   "match": -134495027,
+   "drop": true
+  },
+  {
+   "note": "stub: Qatar – Mahattat al Ruus [EG] connects to no other line (unmapped track, 2 stations, 4 km)",
+   "match": -34421949,
+   "drop": true
+  },
+  {
+   "note": "stub: Rel Kereta Api Kisaran–Tanjung Balai [ID] connects to no other line (unmapped track, 2 stations, 21 km)",
+   "match": -475046172,
+   "drop": true
+  },
+  {
+   "note": "stub: Virbhadra – Rishikesh [IN] connects to no other line (unmapped track, 2 stations, 5 km)",
+   "match": -27287352,
+   "drop": true
+  },
+  {
+   "note": "stub: Murli Halt – Rajmahal [IN] connects to no other line (unmapped track, 2 stations, 8 km)",
+   "match": -60739226,
+   "drop": true
+  },
+  {
+   "note": "stub: Kotdwara – Saneh Road [IN] connects to no other line (unmapped track, 2 stations, 10 km)",
+   "match": -104955022,
+   "drop": true
+  },
+  {
+   "note": "stub: Nimbahera – Gambhiri Road [IN] connects to no other line (unmapped track, 2 stations, 9 km)",
+   "match": -128763603,
+   "drop": true
+  },
+  {
+   "note": "stub: Ramtek – Amdi Halt [IN] connects to no other line (unmapped track, 2 stations, 6 km)",
+   "match": -133733249,
+   "drop": true
+  },
+  {
+   "note": "stub: Makum Junction – Tirap Siding: Ledo – Margherita [IN] connects to no other line (unmapped track, 3 stations, 7 km)",
+   "match": -482285958,
+   "drop": true
+  },
+  {
+   "note": "stub: Ferrovia Ferrara – Codigoro [IT] connects to no other line (unmapped track, 5 stations, 16 km)",
+   "match": -74818853,
+   "drop": true
+  },
+  {
+   "note": "stub: Kanbalu – Thnkun [MM] connects to no other line (unmapped track, 2 stations, 16 km)",
+   "match": -325154064,
+   "drop": true
+  },
+  {
+   "note": "stub: Muzaffargarh – Mehmood Kot Railway [PK] connects to no other line (unmapped track, 2 stations, 26 km)",
+   "match": -28296346,
+   "drop": true
+  },
+  {
+   "note": "stub: Farooqabad – Bahalike [PK] connects to no other line (unmapped track, 2 stations, 15 km)",
+   "match": -186563454,
+   "drop": true
+  },
+  {
+   "note": "stub: Rzd. No 1 – Babarap [TM] connects to no other line (unmapped track, 2 stations, 9 km)",
+   "match": 9402464,
+   "drop": true
+  },
+  {
+   "note": "stub: Poltava-Kremenchuk: Holubove – Novi Sanzhary [UA] connects to no other line (unmapped track, 4 stations, 11 km)",
+   "match": -89681683,
+   "drop": true
+  },
+  {
+   "note": "stub: Poltava-Kremenchuk: Novi Sanzhary – Sobkivka [UA] connects to no other line (unmapped track, 3 stations, 8 km)",
+   "match": -588788351,
+   "drop": true
+  },
+  {
+   "note": "stub: Kremenchutskyi Khid: Perekopivka – Zasullia [UA] connects to no other line (unmapped track, 3 stations, 13 km)",
+   "match": -237296141,
+   "drop": true
+  },
+  {
+   "note": "stub: Poltava-Kremenchuk: Kliushnyky – Mala Pereshchepynska [UA] connects to no other line (unmapped track, 8 stations, 18 km)",
+   "match": -259573191,
+   "drop": true
+  },
+  {
+   "note": "stub: Yaritagua – Chivacoa [VE] connects to no other line (unmapped track, 2 stations, 29 km)",
+   "match": -30184810,
+   "drop": true
+  },
+  {
+   "note": "stub: Đường sắt Diêu Trì–Quy Nhơn [VN] connects to no other line (unmapped track, 2 stations, 10 km)",
+   "match": -151519448,
+   "drop": true
+  },
+  {
+   "note": "Ferrocarril del Mariel: Cuba's regional and commuter trains suspended since Jan 2026 [CU] [audit follow-up]",
+   "match": 9657240,
+   "drop": true
+  },
+  {
+   "note": "Hreblia (RZD) – Voskobiinia: Kamianske steelworks track, no passenger service [UA] [audit follow-up]",
+   "match": -98025440,
+   "drop": true
   }
  ],
  "logos": {

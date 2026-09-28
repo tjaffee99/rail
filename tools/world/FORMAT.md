@@ -26,6 +26,25 @@ tools/make_tiles.py build/full.json build/geometry.pickle                -> data
 
 `build/` is not committed. `build/DATE` holds the data date shown on the site (YYYY-MM-DD).
 
+## Audits: drops, forced lines, coverage
+
+- `tools/world/ref/drops.json` `{key: why}`: what the builder leaves out. A key is an OSM relation id, or `"w<way id>"`
+  for a *synthetic* relation (below) that has that way.
+- `tools/world/ref/force.json` `{key: why}`: missing lines an audit found running. A relation id is taken by the fallback
+  without its passenger-evidence, freight-name, closed and served-stretch tests (2 stations are enough), and a route=train
+  relation is not rejected; `"w<way id>"` makes the unmapped track round that way a synthetic relation in any country
+  (when the way is in a railway relation of under 400 ways, that relation is forced instead). Keep whole-network relations
+  (a country's trunk, the BAM) out of it: they draw a duplicate of every service on them.
+- **Synthetic relations**: where under 60% of a country's main-line track is used by service relations (India, much of
+  Africa and Asia; never the Americas, where unmapped track is freight named after its railway company), connected
+  main-line ways of one name that no route relation covers become route=railway relations with id `-(lowest way id)`
+  (stable across builds), judged like mapped ones; a network (over 6 dead ends or 1,200 km) is left out.
+- A railway relation along the track of a service `drops.json` leaves out as not running (closed, suspended, freight,
+  tourist; not a duplicate) is left out too, so a suspended service's track does not resurface as a line.
+- `tools/world/coverage_report.py <raw.pickle> <build dir> <out.json> [PREV build dir]`: per country the main-line track
+  and the part lines use, every unused stretch (km, names, tags, nearby stations, the relations it is in) and every line
+  with its track's and stations' tags. The regional audits of 2026-09-28 worked from it.
+
 ## Fixes without a rebuild: overrides, stable ids, incremental tiles
 
 `tools/world/ref/overrides.json` holds hand-checked corrections that assemble.py applies to the lines before anything

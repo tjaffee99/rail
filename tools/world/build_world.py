@@ -1212,7 +1212,11 @@ for w in MAIN_W:
 AMERICAS = {'AR', 'BO', 'BR', 'BZ', 'CA', 'CL', 'CO', 'CR', 'CU', 'DO', 'EC', 'GF', 'GT', 'GY', 'HN', 'HT', 'JM', 'MX', 'NI', 'PA', 'PE', 'PR',
             'PY', 'SR', 'SV', 'TT', 'US', 'UY', 'VE'}
 SPARSE = {cc for cc in _tot if cc not in EXCLUDE and cc not in AMERICAS and _cov[cc] < 0.6 * _tot[cc]}
-_free = [w for w in MAIN_W if w not in _inrel and (_wcc(w) in SPARSE or FORCE_WAYS and _wcc(w) not in EXCLUDE) and
+# (also Italy, whose regional services OSM mostly leaves unmapped: the Adriatic line, Cagliari - Golfo Aranci, the Pontremolese;
+# elsewhere in Europe and Russia unmapped track with stations is closed to passengers, freight (Bovanenkovo, the Magistrala
+# Węglowa) or heritage, as an audit of every country's unused main-line track found)
+SYN_CC = SPARSE | {'IT'}
+_free = [w for w in MAIN_W if w not in _inrel and (_wcc(w) in SYN_CC or FORCE_WAYS and _wcc(w) not in EXCLUDE) and
          WAYS[w][0].get('usage') not in ('industrial', 'military', 'test', 'tourism')]
 _mapped = [w for w in MAIN_W if w in _inrel]
 _mc = np.unique(cells(*samples(_mapped, 0.0005)[0].T)) if _mapped else np.zeros(0, np.int64)
@@ -1232,10 +1236,50 @@ _by_node = defaultdict(list)
 _free = [w for w in _free if w not in _near]
 _ff = set(_free)
 if FORCE_WAYS: log('forced ways', len(FORCE_WAYS), 'not free (in a route relation, not main line):', sorted(w for w in FORCE_WAYS if w in WAYS and w not in _ff)[:80])
+_fw = {w for w in FORCE_WAYS if w in WAYS and w not in _ff}      # forced track in a railway relation: that relation (a line's,
+for rid, r in RELS.items():                                       # not a whole network's: under 400 ways)
+    t = r['tags']
+    if rid in DROP or t.get('type') != 'route' or not (t.get('route') == 'railway' or rid in INFRA_T): continue
+    ws = [x for typ, x, role in r['members'] if typ == 'w']
+    hit = next((x for x in ws if x in _fw), None)
+    if hit and len(ws) < 400 and open_share(r) >= 0.9 and not re.search(r'(?i)construct|proposed|planned|projet|projekt', t.get('name', '')):
+        FORCE_FB.setdefault(rid, FORCE_FB[-hit])
+log('forced relations', len(FORCE_FB))
 for w in _free:
     for n in (WAYS[w][2][0], WAYS[w][2][-1]): _by_node[(int(n), _key(w))].append(w)
 for ws in _by_node.values():
     for w in ws[1:]: _par[_f(w)] = _f(ws[0])
+def _wild(w):       # a stretch whose name is not its line's: unnamed, or a bridge / tunnel ("Galleria Monte Totila")
+    t = WAYS[w][0]
+    return not _key(w) or t.get('bridge', 'no') not in ('no', '') or t.get('tunnel', 'no') not in ('no', '')
+_wp = {}
+def _g(x):
+    while _wp.get(x, x) != x: _wp[x] = _wp.get(_wp[x], _wp[x]); x = _wp[x]
+    return x
+_wl = [w for w in _free if _wild(w)]
+_wn = defaultdict(list)
+for w in _wl:
+    for n in (int(WAYS[w][2][0]), int(WAYS[w][2][-1])): _wn[n].append(w)
+for ws in _wn.values():
+    for w in ws[1:]: _wp[_g(w)] = _g(ws[0])
+_runs = defaultdict(list)
+for w in _wl: _runs[_g(w)].append(w)
+_named_at = defaultdict(set)      # node -> names of the named free ways ending there
+for w in _free:
+    if not _wild(w):
+        for n in (int(WAYS[w][2][0]), int(WAYS[w][2][-1])): _named_at[n].add(_key(w))
+njoin = 0
+for run in _runs.values():        # a run between two stretches of one name (or a short one at its end) joins that line
+    touch = defaultdict(set)
+    for w in run:
+        for n in (int(WAYS[w][2][0]), int(WAYS[w][2][-1])):
+            for k in _named_at.get(n, ()): touch[k].add(n)
+    if len(touch) != 1: continue
+    k, nodes = next(iter(touch.items()))
+    if len(nodes) < 2 and sum(map(way_len, run)) > 2000: continue
+    a = next(x for n in nodes for x in _by_node[(n, k)])
+    for w in run: _par[_f(w)] = _f(a)
+    njoin += 1
 _comp = defaultdict(list)
 for w in _free: _comp[_f(w)].append(w)
 def _ends(ws):
@@ -1246,16 +1290,27 @@ def _ends(ws):
 nsyn, nnet = 0, 0
 for ws in _comp.values():         # id: minus its lowest way id (stable across builds; drops.json names one of its ways)
     forced = any(w in FORCE_WAYS for w in ws)
-    if not forced and Counter(_wcc(w) for w in ws).most_common(1)[0][0] not in SPARSE: continue
+    if not forced and Counter(_wcc(w) for w in ws).most_common(1)[0][0] not in SYN_CC: continue
     if sum(map(way_len, ws)) < (2000 if forced else 8000): continue
     if not forced and (sum(map(way_len, ws)) > 1.2e6 or _ends(ws) > 6): nnet += 1; continue
     if forced: FORCE_FB[-min(ws)] = next(FORCE_FB[-w] for w in ws if w in FORCE_WAYS)
-    name = Counter(WAYS[w][0].get('name') for w in ws if WAYS[w][0].get('name')).most_common(1)
+    name = Counter()
+    for w in ws:
+        if WAYS[w][0].get('name') and not _wild(w): name[WAYS[w][0]['name']] += way_len(w)
+    name = name.most_common(1)
     why = next((DROP_WAYS[w] for w in ws if w in DROP_WAYS), None)
     if why: DROP[-min(ws)] = why
     nsyn += 1; RELS[-min(ws)] = {'tags': {'type': 'route', 'route': 'railway', 'name': name[0][0] if name else '', '_synthetic': '1'},
                                  'members': [('w', w, '') for w in ws]}
-log('synthetic railway relations from unmapped track', nsyn, 'in', len(SPARSE), 'sparse countries;', nnet, 'networks left out')
+log('synthetic railway relations from unmapped track', nsyn, '(', len(SPARSE), 'sparse countries;', nnet, 'networks left out;', njoin, 'bridge / tunnel / unnamed runs joined )')
+# track of services an audit dropped as not running (closed, suspended, freight, tourist): a railway relation along it is no
+# passenger line either (Cape Town - De Aar under the suspended Shosholoza Meyl, the Main South Line under Dunedin's excursions)
+_DW = set()
+for rid, why in DROP.items():
+    r = RELS.get(rid)
+    if rid > 0 and r and r['tags'].get('type') == 'route' and r['tags'].get('route') == 'train' and \
+            not re.search(r'(?i)dup|artefact|artifact|fragment|stub|historic|partial|corridor', why):
+        _DW.update(x for typ, x, role in r['members'] if typ == 'w')
 FB, nfb = [], Counter()        # fallback lines: dict(rid, t, stops (records), branches, ways, anchor)
 ORPHAN = []                    # (served station, station no service stops at, served station) along a railway line
 for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' and r['tags'].get('route') == 'railway'] + INFRA_T:
@@ -1267,8 +1322,10 @@ for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' a
     forced = rid in FORCE_FB
     if not forced and (lifecycle(t) or open_share(r) < 0.5 or rid in DENY): nfb['closed'] += 1; continue
     if not forced and (infra_freight(t, ways) or junk(t)): nfb['freight / junk'] += 1; drop_log('fallback freight / junk', rid, t.get('name'), infra_freight(t, ways), junk(t)); continue
-    c = WAYS[ways[len(ways) // 2]][1]
-    if country_code(*c[len(c) // 2]) in EXCLUDE: continue
+    if not forced and not anchor and sum(way_len(w) for w in ways if w in _DW) > 0.5 * sum(map(way_len, ways)):
+        nfb['dropped service track'] += 1; drop_log('fallback on a dropped service track', rid, t.get('name')); continue
+    c = WAYS[ways[len(ways) // 2]][1]; rcc = country_code(*c[len(c) // 2])
+    if rcc in EXCLUDE: continue
     if rid > 0: ways = grow(ways, t.get('name'))    # (a synthetic relation already has all its unmapped track of that name: growing
     tr = track(ways) if rid not in DBG else Track(ways, True)       # it over mapped track makes "FC Roca" a 1,700 km line)
     if tr is None: continue
@@ -1283,22 +1340,33 @@ for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' a
     for end, p in ((tr.P[0], 0.0), (tr.P[-1], tr.L)):
         n = next((n for d, n in SGRID.near(float(end[0]), float(end[1]), 500) if mode_ok(NODES[n][2], 'train') and active(NODES[n][2]) and ev(n)), None)
         if n is not None and n not in got: got[n] = p
-    if rid < 0 or forced:       # unmapped track ends where it meets a mapped line: that line's station at the junction (within
-        k = max(1, len(tr.P) // 4)  # 6 km, a station a service stops at, beyond the end, not back along the track) ends it
+    jn_add = []                 # (added to the line's stops once it is taken: they count for none of the tests below)
+    # (railway relations where services are sparsely mapped: in Europe a railway relation ends where its line does)
+    if not anchor and (rid < 0 or forced or rcc in SPARSE):   # track that ends where it meets another line, away from any
+        k = max(1, len(tr.P) // 4)  # station (a branch mapped up to the junction's points): that line's station at the junction (within 6 km, a station a
+                                    # service stops at, beyond the end, not back along the track) ends it. Unmapped track
+                                    # that runs into mapped track ends there, often a station short of the junction: when its
+                                    # end station has no service, the served station beyond it (within 12 km) ends it
         for end, p, inner in ((tr.P[0], 0.0, tr.P[k]), (tr.P[-1], tr.L, tr.P[-1 - k])):
-            if any(abs(q - p) < 600 for q in got.values()): continue
-            e, i_ = (float(end[0]), float(end[1])), (float(inner[0]), float(inner[1]))
-            for d, n in SGRID.near(*e, 6000):
+            at = [n for n, q in got.items() if abs(q - p) < 600]
+            if any(covered(station_for(n)) for n, q in got.items() if abs(q - p) < 1500): continue     # it ends at a served
+            e, i_ = (float(end[0]), float(end[1])), (float(inner[0]), float(inner[1]))              # station (a big one's node
+                                                                                                   # can be 1 km from the track)
+            ck = int(cells(np.array([e[0]]), np.array([e[1]]))[0]); j = int(np.searchsorted(_mc, ck))     # (binary search)
+            if rid < 0 and j < len(_mc) and int(_mc[j]) == ck and not any(covered(station_for(n)) for n in at): reach = 12000
+            elif at: continue
+            else: reach = 6000
+            for d, n in SGRID.near(*e, reach):
                 if n in got or not (mode_ok(NODES[n][2], 'train') and active(NODES[n][2]) and NODES[n][2].get('name')): continue
                 if metres(*NODES[n][:2], *i_) <= metres(*e, *i_): continue
                 if not covered(station_for(n)): continue
-                got[n] = p; nfb['junction end'] += 1; break
+                jn_add.append((n, p)); break
     rec = {}
     for n, p in sorted(got.items(), key=lambda a: a[1]):
         s = station_for(n)
         if stations[s][0] and s not in rec: rec[s] = (p, n)
     if rid in DBG: print('  DBG fallback', rid, t.get('name'), len(ways), 'ways', len(got), 'stations', len(rec), 'records', [stations[s][1] for s in rec][:20])
-    if len(rec) < 3: nfb['under 3 stations'] += 1; continue
+    if len(rec) < (2 if forced else 3): nfb['under 3 stations'] += 1; continue
     served, prev = sum(covered(s) for s in rec) / len(rec), None
     run = best = 0
     for s in rec: run = 0 if covered(s) else run + 1; best = max(best, run)
@@ -1325,7 +1393,7 @@ for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' a
             a, b = stations[o[0]][2:4], stations[o[-1]][2:4]
             ja = min(main, key=lambda s: metres(*stations[s][2:4], *a)); jb = min(main, key=lambda s: metres(*stations[s][2:4], *b))
             branches = [[ja] + o] if metres(*stations[ja][2:4], *a) <= metres(*stations[jb][2:4], *b) else [[jb] + o[::-1]]
-    if len(main) < 3: continue
+    if len(main) < (2 if forced else 3): continue
     g = [metres(*stations[x][2:4], *stations[y][2:4]) for x, y in zip(main, main[1:])]
     if not anchor and not branches and len(g) >= 5 and np.median(g) < 5000:      # an end station far out past a dense line (DL&W
         while len(main) > 3 and g[-1] > max(50000, 20 * np.median(g)): main, g = main[:-1], g[:-1]    # Mainline: Hackettstown, then
@@ -1353,6 +1421,10 @@ for rid in [rid for rid, r in RELS.items() if r['tags'].get('type') == 'route' a
                        'ways': trim(ways, tr, min(a, b), max(a, b)) if k == 0 else far, 'anchor': False})
         nfb['split at a gap'] += len(runs); continue
     (a, b), _ = tr.locate([stations[main[0]][2:4], stations[main[-1]][2:4]])
+    for n, p in jn_add:         # the junction stations beyond its ends
+        s = station_for(n)
+        if s in main or not stations[s][0]: continue
+        main = [s] + main if p < 0.5 * tr.L else main + [s]; nfb['junction end'] += 1
     FB.append({'rid': rid, 't': t, 'stops': main, 'branches': branches, 'ways': trim(ways, tr, min(a, b), max(a, b)) if not branches else ways,
                'anchor': anchor})
     nfb['anchor' if anchor else 'added'] += 1
