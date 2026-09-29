@@ -649,7 +649,10 @@ TOURIST_OK = re.compile(r'glacier express|bernina|cremallera|zahnradbahn|zugspit
                         r'ghan|indian pacific|overland|spirit of|tren a las nubes|expreso del sur|white pass|'
                         r'funicul|funicolare|standseilbahn|incline|harzer|brockenbahn|molli|fichtelberg|lößnitz|weißeritz|rhb', re.I)
 PUBLIC_OK = re.compile(r'Walt Disney World Monorail|Epcot Monorail|Resort Monorail|Express Monorail|disney resort line|'
-                       r'ディズニーリゾートライン|舞浜リゾートライン', re.I)
+                       r'ディズニーリゾートライン|舞浜リゾートライン|'
+                       # attractions people ride to get somewhere (not loop rides): New Athos cave railway, Disneyland's
+                       # monorail to Downtown Disney, the Chimelong maglev, the Primm casino monorail
+                       r'New Athos Cave Railway|Афон.*метро|Disneyland Monorail|长隆磁浮|Chimelong Maglev|Primm Valley Monorail', re.I)
 def own_name(n):
     """A route's name without its route description, which names stops ("Метро Салтівська лінія: Історичний музей => …")."""
     parts = re.split(r'\s*[:：]\s*', n or '', 1)
