@@ -765,6 +765,8 @@ for rid, m in RELS.items():   # (an airside mover's: unless they say they run la
 FORCE = {2752701: {'name': 'ירושלים – תל אביב', 'name:he': 'ירושלים – תל אביב', 'name:en': 'Jerusalem – Tel Aviv',
                    'service': 'high_speed', 'network': 'Israel Railways', 'operator': 'Israel Railways'},   # the A1, Navon – airport
          # Béchar – Tindouf (passenger trains since Feb 2026), mapped only as the Gara Djebilet mining line with no stops
+         # Disneyland's monorail, Tomorrowland - Downtown Disney (a way into the park), tagged historic=railway for its history
+         1721168: {'historic': '', 'fee': ''},
          20052232: {'route': 'train', 'name': 'بشار – تندوف', 'name:en': 'Béchar – Tindouf', 'name:fr': 'Béchar – Tindouf',
                     'to': 'Tindouf', 'service': 'long_distance', 'network': 'SNTF', 'operator': 'SNTF'}}
 FORCE_STOPS = {2752701: [7144868421, 3982712778, 3978658308, 2930618402, 2930618401],
@@ -774,6 +776,11 @@ for rid, tags in FORCE.items():
     if rid in RELS:
         RELS[rid]['tags'] = {k: v for k, v in RELS[rid]['tags'].items() if k != 'fixme'} | tags
         RELS[rid]['members'] = [m for m in RELS[rid]['members'] if m[0] != 'n'] + [('n', n, 'stop') for n in FORCE_STOPS.get(rid, [])]
+# stations whose tags hide them from their line: Disneyland's monorail stations (Tomorrowland tagged historic=monument
+# for its history, Downtown Disney without the monorail mode)
+FORCE_NODE = {247141462: {'monorail': 'yes'}, 2118852163: {'monorail': 'yes', 'historic': ''}}
+for n, tags in FORCE_NODE.items():
+    if n in NODES: NODES[n] = (NODES[n][0], NODES[n][1], {k: v for k, v in (NODES[n][2] | tags).items() if v})
 INFRA_T = []          # route=train relations that map a railway line (handled with the fallback)
 for rid, r in RELS.items():
     t = r['tags']
