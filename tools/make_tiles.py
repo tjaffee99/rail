@@ -390,7 +390,9 @@ def components(a, b, n):  # node labels of the graph with edges a-b: hook roots 
         while (comp[comp] != comp).any(): comp = comp[comp]
 def ends(li):
     ws = [w for w in line_ways[li] if known(w)]
-    if not ws: return {}
+    # (a loop has no ends to cut; and on one-way track its return runs on other track than the shortest path back: the
+    # Disneyland Monorail's second beam)
+    if not ws or L[li][8]: return {}
     R = [refs(w) for w in ws]; n = np.array([len(r) for r in R]); start = np.cumsum(n) - n
     P = np.concatenate([coords(w) for w in ws]); c = cosl(float(P[:, 1].mean()))
     ids, inv = np.unique(np.concatenate(R), return_inverse=True)

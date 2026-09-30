@@ -583,6 +583,11 @@
     "Oum El Assel",
     "Tindouf"
    ]
+  },
+  {
+   "note": "Disneyland Monorail runs a loop: Tomorrowland - Downtown Disney - Tomorrowland",
+   "match": 1721168,
+   "loop": 1
   }
  ],
  "logos": {
