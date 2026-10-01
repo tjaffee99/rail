@@ -588,6 +588,141 @@
    "note": "Disneyland Monorail runs a loop: Tomorrowland - Downtown Disney - Tomorrowland",
    "match": 1721168,
    "loop": 1
+  },
+  {
+   "note": "Tsugaru Line: trains run Aomori – Kanita; Kanita – Minmaya has been bus-replaced since the 2022 floods",
+   "match": 1828078,
+   "stops": [
+    "Aomori",
+    "Aburakawa",
+    "Tsugaru-Miyata",
+    "Okunai",
+    "Hidariseki",
+    "Ushirogata",
+    "Nakasawa",
+    "Yomogita",
+    "Gosawa",
+    "Seheji",
+    "Kanita"
+   ]
+  },
+  {
+   "note": "Hisatsu Line: only Hayato – Yoshimatsu runs; Yoshimatsu – Hitoyoshi – Yatsushiro suspended since the July 2020 floods",
+   "match": 1874894,
+   "stops": [
+    "Hayato",
+    "Hinatayama",
+    "Hyokiyama",
+    "Nakafukura",
+    "Kareigawa",
+    "Kirishima-Onsen",
+    "Uemura",
+    "Osumi-Yokogawa",
+    "Kurino",
+    "Yoshimatsu"
+   ]
+  },
+  {
+   "note": "Taiwan Railway Hsinchu – Keelung: TRA runs one kind of local train on every line (no separate commuter brand); regional like the rest of TRA, not suburban by geography",
+   "match": 2719741,
+   "set": {
+    "0": "r"
+   }
+  },
+  {
+   "note": "Taiwan Railway Badu – Jingtong (Pingxi Line): TRA runs one kind of local train on every line (no separate commuter brand); regional like the rest of TRA, not suburban by geography",
+   "match": 2662677,
+   "set": {
+    "0": "r"
+   }
+  },
+  {
+   "note": "Taiwan Railway Pingtung Line: TRA runs one kind of local train on every line (no separate commuter brand); regional like the rest of TRA, not suburban by geography",
+   "match": 1827336,
+   "set": {
+    "0": "r"
+   }
+  },
+  {
+   "note": "Taiwan Railway Taichung Line: TRA runs one kind of local train on every line (no separate commuter brand); regional like the rest of TRA, not suburban by geography",
+   "match": 5571202,
+   "set": {
+    "0": "r"
+   }
+  },
+  {
+   "note": "Choceň – Litomyšl branch: starts at Choceň (Dobříkov and Sruby are main-line stops)",
+   "match": -9000000151,
+   "stops": [
+    "Choceň",
+    "Slatina u Vysokého Mýta",
+    "Vysoké Mýto",
+    "Vysoké Mýto město",
+    "Džbánov",
+    "Hrušová",
+    "Cerekvice nad Loučnou",
+    "Cerekvice nad Loučnou zastávka",
+    "Řídký",
+    "Tržek",
+    "Litomyšl-Nedošín",
+    "Litomyšl zastávka",
+    "Litomyšl"
+   ],
+   "set": {
+    "1": "Choceň – Litomyšl",
+    "2": "Choceň – Litomyšl"
+   }
+  },
+  {
+   "note": "Hranice – Vsetín – Horní Lideč stopping trains: Horní Lideč is the terminus",
+   "match": -9000000146,
+   "stops": [
+    "Horní Lideč",
+    "Lidečko",
+    "Lužná u Vsetína",
+    "Valašská Polanka",
+    "Leskovec",
+    "Hustopeče nad Bečvou",
+    "Milotice nad Bečvou",
+    "Špičky",
+    "Teplice nad Bečvou",
+    "Hranice na Moravě město",
+    "Černotín"
+   ],
+   "set": {
+    "1": "Horní Lideč – Vsetín – Hranice na Moravě",
+    "2": "Horní Lideč – Vsetín – Hranice na Moravě"
+   }
+  },
+  {
+   "note": "Ilanskaya – Reshoty – Tayshet suburban: starts at Ilanskaya (the stops west of it are the Kansk – Ilanskaya line's)",
+   "match": -9000000209,
+   "stops": [
+    "Ilanskaya",
+    "Verkhniy Ingash",
+    "Ingashskaya",
+    "Kurup",
+    "Rayispolkom",
+    "Poyma",
+    "Sharbysh",
+    "Maksimovo",
+    "Pribylovo",
+    "Dogadaevo",
+    "4443 km",
+    "Sosnovyy Bor",
+    "Reshoty",
+    "Klyuchi",
+    "Yurty",
+    "Biryusinsk",
+    "Tayshetka",
+    "Mamaevka",
+    "Timiryazeva",
+    "Avdyushino"
+   ],
+   "set": {
+    "1": "Иланская – Решоты – Тайшет",
+    "2": "Ilanskaya – Reshoty – Tayshet"
+   }
   }
  ],
  "logos": {

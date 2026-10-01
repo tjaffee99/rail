@@ -715,7 +715,7 @@ def route_stops(rid, r, mode):
 def passenger(t): return t.get('type') == 'route' and t.get('route') in MODES and '直通' not in t.get('name', '')
 
 SUBURBAN = re.compile(r'S-Bahn|\bRER\b|Transilien|Cercan[ií]as|Rodalies|Suburban|Suburbano|suburbain|Proastiakos|Προαστιακός|'
-                      r'Commuter|Regional Rail|Pendelt[åa]g|Pendeltog|S-tog|Overground|Elizabeth line|Merseyrail|\bMetra\b|Metro-North|'
+                      r'Commuter|Regional Rail|Pendelt[åa]g|Pendeltog|pendeln\b|S-tog|Overground|Elizabeth line|Merseyrail|\bMetra\b|Metro-North|'
                       r'Long Island Rail Road|\bLIRR\b|NJ ?Transit|\bMARC\b|Caltrain|Metrolink|Sounder|Tri-Rail|SunRail|GO Transit|'
                       r'\bexo\b|Trem Metropolitano|Metrotr[eé]n|Tren Urbano|CPTM|SuperVia|Commuterline|\bKRL\b|Metrorail|Sydney Trains|'
                       r'Metro Trains|Transperth|Citytrain|Adelaide Metro|Léman Express|Servizio ferroviario (?:suburbano|metropolitano)|'
@@ -784,15 +784,36 @@ for rid, tags in FORCE.items():
         if rid in FORCE_STOPS: RELS[rid]['members'] = [m for m in RELS[rid]['members'] if m[0] != 'n'] + [('n', n, 'stop') for n in FORCE_STOPS[rid]]
 # stations whose tags hide them from their line: Disneyland's monorail stations (Tomorrowland tagged historic=monument
 # for its history, Downtown Disney without the monorail mode)
-FORCE_NODE = {247141462: {'monorail': 'yes'}, 2118852163: {'monorail': 'yes', 'historic': ''}}
+FORCE_NODE = {247141462: {'monorail': 'yes'}, 2118852163: {'monorail': 'yes', 'historic': ''},
+              # Valparaíso ascensores whose two stations carry one name (merged into one): the plan (bayward) end and the hill end
+              1937775773: {'name': 'San Agustín Lower'}, 1937775775: {'name': 'San Agustín Upper'},
+              2118702244: {'name': 'Cordillera Lower'}, 2118702237: {'name': 'Cordillera Upper'},
+              1766513276: {'name': 'Espíritu Santo Lower'}, 1766513275: {'name': 'Espíritu Santo Upper'}}
 for n, tags in FORCE_NODE.items():
     if n in NODES: NODES[n] = (NODES[n][0], NODES[n][1], {k: v for k, v in (NODES[n][2] | tags).items() if v})
 # running services OSM has no route relation for (ref/add.json, checked by hand or by an audit): made here from their
 # stations in running order and their track; ids are negative (-9000000001...), outside the synthetic ones (minus a way id)
 _add = os.path.join(os.path.dirname(__file__), 'ref', 'add.json')
 for rid, a in (json.load(open(_add)).items() if os.path.exists(_add) else ()):
+    for n in a['stops']:      # a named stop the audit picked counts as a station of the line's mode (Valparaíso's ascensores)
+        if n in NODES and NODES[n][2].get('name') and NODES[n][2].get('railway') not in ('station', 'halt'):
+            NODES[n] = (NODES[n][0], NODES[n][1], NODES[n][2] | {'railway': 'station', 'public_transport': 'station', a['tags']['route']: 'yes'})
     RELS[int(rid)] = {'tags': dict(a['tags'], type='route'), 'members': [('n', n, 'stop') for n in a['stops'] if n in NODES] +
                       [('w', w, '') for w in a['ways'] if w in WAYS]}
+# stations a shown stopping service runs past without them in its relation (ref/add_stops.json, from the missing-lines
+# audit: NJ Transit's Orange, SEPTA's Villanova...): each goes into the relation's stops where it adds the least distance
+_adds = os.path.join(os.path.dirname(__file__), 'ref', 'add_stops.json')
+for rid, ns in (json.load(open(_adds)).items() if os.path.exists(_adds) else ()):
+    r = RELS.get(int(rid))
+    if not r: continue
+    st = [m for m in r['members'] if m[0] == 'n' and m[1] in NODES and not re.search(r'platform', m[2])]
+    for n in ns:
+        if n not in NODES or any(m[1] == n for m in st) or not st: continue
+        q = NODES[n][:2]; P = [NODES[m[1]][:2] for m in st]
+        k = min([(metres(*q, *P[0]), 0), (metres(*q, *P[-1]), len(st))] +
+                [(metres(*P[i], *q) + metres(*q, *P[i + 1]) - metres(*P[i], *P[i + 1]), i + 1) for i in range(len(P) - 1)])[1]
+        st.insert(k, ('n', n, 'stop'))
+    r['members'] = st + [m for m in r['members'] if not (m[0] == 'n' and m in st)]
 INFRA_T = []          # route=train relations that map a railway line (handled with the fallback)
 for rid, r in RELS.items():
     t = r['tags']

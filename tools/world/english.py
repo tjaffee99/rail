@@ -243,6 +243,7 @@ def english_station_src(native, tags=None, lon=None, lat=None, cc=''):
         v = _from_tag(native, t, lon, lat, cc, sc)
         if v: return v, 'wd-tag'
         v = _from_near(native, t, lon, lat, cc, sc)
+        if v and 'х' in native.lower() and 'x' in v.lower() and re.search(r'[А-Яа-яЁё]', native): v = ''   # "Xilok": an Uzbek-style label for Хилок
         if v: return v, 'wd-near'
     v = _from_tags(native, t, sc)
     if v: return v, 'tag'
