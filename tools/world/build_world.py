@@ -781,6 +781,18 @@ for rid, tags in FORCE.items():
 FORCE_NODE = {247141462: {'monorail': 'yes'}, 2118852163: {'monorail': 'yes', 'historic': ''}}
 for n, tags in FORCE_NODE.items():
     if n in NODES: NODES[n] = (NODES[n][0], NODES[n][1], {k: v for k, v in (NODES[n][2] | tags).items() if v})
+# running services OSM has no route relation for: made here from their stations (in order) and track (checked by hand)
+ADD = {-9000000001: ({'type': 'route', 'route': 'train', 'service': 'commuter', 'name': 'Red Line', 'name:en': 'Red Line',
+                      'colour': '#E2231A', 'from': 'Oyingbo', 'to': 'Agbado',
+                      'network': 'Lagos Rail Mass Transit', 'operator': 'LAMATA'},
+                     # Lagos Red Line (opened 2024): Oyingbo, Ebute Metta, Yaba, Mushin, Oshodi, Ikeja, Agege, Iju, Agbado;
+                     # its own track at Oyingbo, then beside (mapped as) the Lagos – Ibadan SGR's
+                     [1182055775, 1182055776, 1182784592, 1182790318, 956421077, 956421078, 1483307172, 987499841, 919669869,
+                      919669865, 919669850, 919669840, 919669845, 919669841, 987499802, 1158919570],
+                     [12260658324, 12260658320, 12260658329, 12260658330, 12260658336, 12260658337, 12260658323, 12260658321,
+                      10777418521])}
+for rid, (tags, ws, stops) in ADD.items():
+    RELS[rid] = {'tags': tags, 'members': [('n', n, 'stop') for n in stops] + [('w', w, '') for w in ws if w in WAYS]}
 INFRA_T = []          # route=train relations that map a railway line (handled with the fallback)
 for rid, r in RELS.items():
     t = r['tags']
