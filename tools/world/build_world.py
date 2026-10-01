@@ -57,7 +57,7 @@ import wikidata as wd
 
 T0 = time.time()
 def log(*a): print(f'{time.time() - T0:7.1f}s', *a, flush=True)
-VERBOSE = '-v' in sys.argv
+VERBOSE = '-v' in sys.argv or bool(os.environ.get('BW_VERBOSE'))
 DBG = {int(x) for x in os.environ.get('DBG', '').split(',') if x}      # relation ids to trace
 def drop_log(why, *a):
     if VERBOSE: print('  drop', why + ':', *a)
@@ -613,10 +613,12 @@ FREIGHT_OP = re.compile(r'Ferromex|Ferrosur|KCSM|Kansas City Southern|CPKC|Canad
 LIFECYCLE = ('construction', 'proposed', 'disused', 'abandoned', 'razed', 'demolished', 'removed', 'planned')
 def lifecycle(t):
     """Not open: a lifecycle tag or key prefix, a lifecycle word in the name, or an opening date still to come."""
-    if t.get('state') in LIFECYCLE or t.get('railway') in LIFECYCLE or any(k.split(':')[0] in LIFECYCLE for k in t) or \
+    if t.get('state') in LIFECYCLE or t.get('railway') in LIFECYCLE or any(k.split(':')[0] in LIFECYCLE and k.split(':')[1:2] in ([], ['route'], ['type'],
+            ['railway'], ['route_master']) for k in t) or \
             t.get('disused') == 'yes' or t.get('abandoned') == 'yes' or t.get('historic') or t.get('railway:historic'): return True
+    # (a prefix on other keys is metadata, not the route's state: Zürich's S10 "disused:gtfs:route_id", Rome's Metromare "planned:name")
     if DEAD_NAME.search(' '.join(t.get(k, '') for k in ('name', 'name:en'))): return True
-    for k in ('opening_date', 'start_date'):
+    for k in ('opening_date', 'start_date', 'planned:opening_date'):
         v = t.get(k) or ''
         m = re.fullmatch(r'(\d{1,2})[/.](\d{1,2})[/.](\d{4})', v)
         iso = f'{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}' if m else v[:10]
@@ -767,32 +769,30 @@ FORCE = {2752701: {'name': 'ירושלים – תל אביב', 'name:he': 'יר�
          # Béchar – Tindouf (passenger trains since Feb 2026), mapped only as the Gara Djebilet mining line with no stops
          # Disneyland's monorail, Tomorrowland - Downtown Disney (a way into the park), tagged historic=railway for its history
          1721168: {'historic': '', 'fee': ''},
+         # running services mapped only as railway relations whose stations the fallback cannot count (missing-lines audit):
+         # Tsukuba Cable Car, the Getty Center Tram (the cable-hauled way up to the museum), JR's Mino-Akasaka branch
+         14679071: {'route': 'funicular'}, 19758296: {'route': 'funicular', 'operator': 'J. Paul Getty Trust'},
+         20055959: {'route': 'train', 'service': 'regional'},
          20052232: {'route': 'train', 'name': 'بشار – تندوف', 'name:en': 'Béchar – Tindouf', 'name:fr': 'Béchar – Tindouf',
                     'to': 'Tindouf', 'service': 'long_distance', 'network': 'SNTF', 'operator': 'SNTF'}}
-FORCE_STOPS = {2752701: [7144868421, 3982712778, 3978658308, 2930618402, 2930618401],
+FORCE_STOPS = {2752701: [7144868421, 3982712778, 3978658308, 2930618402, 2930618401], 1721168: [],
                20052232: [2785628270, 13565642705, 13565642790, 13565643066, 13565643345, 13565643339, 13565516390]}   # Navon (deep underground, off the
 # track's snapping range), Ben Gurion Airport, Tel Aviv HaHagana, Savidor Center, University: the A1's Jerusalem – Tel Aviv run
 for rid, tags in FORCE.items():
     if rid in RELS:
         RELS[rid]['tags'] = {k: v for k, v in RELS[rid]['tags'].items() if k != 'fixme'} | tags
-        RELS[rid]['members'] = [m for m in RELS[rid]['members'] if m[0] != 'n'] + [('n', n, 'stop') for n in FORCE_STOPS.get(rid, [])]
+        if rid in FORCE_STOPS: RELS[rid]['members'] = [m for m in RELS[rid]['members'] if m[0] != 'n'] + [('n', n, 'stop') for n in FORCE_STOPS[rid]]
 # stations whose tags hide them from their line: Disneyland's monorail stations (Tomorrowland tagged historic=monument
 # for its history, Downtown Disney without the monorail mode)
 FORCE_NODE = {247141462: {'monorail': 'yes'}, 2118852163: {'monorail': 'yes', 'historic': ''}}
 for n, tags in FORCE_NODE.items():
     if n in NODES: NODES[n] = (NODES[n][0], NODES[n][1], {k: v for k, v in (NODES[n][2] | tags).items() if v})
-# running services OSM has no route relation for: made here from their stations (in order) and track (checked by hand)
-ADD = {-9000000001: ({'type': 'route', 'route': 'train', 'service': 'commuter', 'name': 'Red Line', 'name:en': 'Red Line',
-                      'colour': '#E2231A', 'from': 'Oyingbo', 'to': 'Agbado',
-                      'network': 'Lagos Rail Mass Transit', 'operator': 'LAMATA'},
-                     # Lagos Red Line (opened 2024): Oyingbo, Ebute Metta, Yaba, Mushin, Oshodi, Ikeja, Agege, Iju, Agbado;
-                     # its own track at Oyingbo, then beside (mapped as) the Lagos – Ibadan SGR's
-                     [1182055775, 1182055776, 1182784592, 1182790318, 956421077, 956421078, 1483307172, 987499841, 919669869,
-                      919669865, 919669850, 919669840, 919669845, 919669841, 987499802, 1158919570],
-                     [12260658324, 12260658320, 12260658329, 12260658330, 12260658336, 12260658337, 12260658323, 12260658321,
-                      10777418521])}
-for rid, (tags, ws, stops) in ADD.items():
-    RELS[rid] = {'tags': tags, 'members': [('n', n, 'stop') for n in stops] + [('w', w, '') for w in ws if w in WAYS]}
+# running services OSM has no route relation for (ref/add.json, checked by hand or by an audit): made here from their
+# stations in running order and their track; ids are negative (-9000000001...), outside the synthetic ones (minus a way id)
+_add = os.path.join(os.path.dirname(__file__), 'ref', 'add.json')
+for rid, a in (json.load(open(_add)).items() if os.path.exists(_add) else ()):
+    RELS[int(rid)] = {'tags': dict(a['tags'], type='route'), 'members': [('n', n, 'stop') for n in a['stops'] if n in NODES] +
+                      [('w', w, '') for w in a['ways'] if w in WAYS]}
 INFRA_T = []          # route=train relations that map a railway line (handled with the fallback)
 for rid, r in RELS.items():
     t = r['tags']
@@ -815,7 +815,7 @@ OPEN = near_track(sorted({s for v in LISTED.values() for s in v}))
 for rid, st in LISTED.items():      # drop stops away from any open track (extensions still being built)
     st = [s for s in st if s in OPEN]
     LISTED[rid] = [s for i, s in enumerate(st) if i == 0 or s != st[i - 1]]
-for rid in [rid for rid, r in ROUTES.items() if open_share(r) < 0.3]:
+for rid in [rid for rid, r in ROUTES.items() if open_share(r) < 0.3 and rid not in FORCE_FB]:
     # most of its track is not open rail (under construction, disused): a line still being built, unless its stops lie on
     # the open part (a relation cut at the edge of a regional extract)
     ws, st = route_ways(ROUTES[rid]), LISTED[rid]
@@ -1085,11 +1085,13 @@ def pole_free(n, name):
     m = _POLE.match(name) or re.match(r'(.+\d)\s+0\d$', name); t = NODES[n][2]      # also "Bitwy Warszawskiej 1920 03"
     if m and not (t.get('railway') in ('station', 'halt') or t.get('public_transport') == 'station') and (
             re.search(r'\s0\d$', name) or t.get('public_transport') in ('platform', 'stop_position') or t.get('railway') in ('platform', 'stop')) and \
-            not re.search(r'(?i)(?:terminal|gate|pier|level|halle|ebene|sektor|linie|line|\bt|zone|exit|ausgang|parking|p|nr|no)$', m.group(1)):
-        return m.group(1)       # "Banacha 05", "Richmond 1": a pole or platform of a stop
+            not re.search(r'(?i)(?:terminal|gate|pier|level|halle|ebene|sektor|linie|line|\bt|zone|exit|ausgang|parking|p|nr|no)$', m.group(1)) and \
+            not any(o != n and sname(o) == name and prio(NODES[o][2]) >= 2 and metres(*NODES[n][:2], *NODES[o][:2]) < 300 for o in NUMS.get(m.group(1), ())):
+        return m.group(1)       # "Banacha 05", "Richmond 1": a pole or platform of a stop (not of a station so named: Lagos "Mile 2")
     if m and m.group(1) in NUMS and len(NUMS[m.group(1)]) < 5000:
         lon, lat = NODES[n][:2]
-        if any(o != n and metres(lon, lat, *NODES[o][:2]) < 300 for o in NUMS[m.group(1)]): return m.group(1)
+        if any(o != n and (sname(o) != name or re.search(r',\s*\d+$|\s0\d$', name)) and metres(lon, lat, *NODES[o][:2]) < 300 for o in NUMS[m.group(1)]):
+            return m.group(1).rstrip(' ,')   # another number nearby; a house number or "02" pole even if only its own ("Mile 2", "Dwarka Sector 21" stay)
     return name
 def prio(t): return 3 if t.get('railway') == 'station' else 2 if t.get('railway') in ('halt', 'tram_stop') or t.get('public_transport') == 'station' else 1
 _cc = {}
