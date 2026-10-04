@@ -635,7 +635,7 @@
    "name": "Бишкек-2 – Каинды",
    "name:en": "Bishkek-2 – Kaindy",
    "operator": "Кыргыз темир жолу",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    240449433,
@@ -11983,7 +11983,7 @@
    "name": "Уяр – Канск-Енисейский – Иланская",
    "name:en": "Uyar – Kansk-Yeniseisky – Ilanskaya",
    "operator": "АО «КрасПригород»",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    4795178524,
@@ -12112,7 +12112,7 @@
    "name": "Иланская – Решоты – Тайшет",
    "name:en": "Ilanskaya – Reshoty – Tayshet",
    "operator": "АО «КрасПригород» / АО «Байкальская ППК»",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    4012799211,
@@ -12195,7 +12195,7 @@
    "name": "Мысовая – Улан-Удэ",
    "name:en": "Mysovaya – Ulan-Ude",
    "operator": "АО «Байкальская ППК»",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    3027044623,
@@ -12348,7 +12348,7 @@
    "name": "Петровский Завод – Хилок",
    "name:en": "Petrovsky Zavod – Khilok",
    "operator": "АО «Забайкальская ППК»",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    3761489454,
@@ -12466,7 +12466,7 @@
    "name": "Хилок – Могзон – Чита II",
    "name:en": "Khilok – Mogzon – Chita II",
    "operator": "АО «Забайкальская ППК»",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    4015690044,
@@ -12544,7 +12544,7 @@
    "name": "Екатеринбург – Реж – Егоршино",
    "name:en": "Yekaterinburg – Rezh – Yegorshino",
    "operator": "АО «Свердловская пригородная компания»",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    4795178525,
@@ -12641,7 +12641,7 @@
    "name": "Грязи – Мичуринск",
    "name:en": "Gryazi – Michurinsk",
    "operator": "АО «ППК «Черноземье»",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    6439771790,
@@ -12690,7 +12690,7 @@
    "name": "Курган – Макушино – Петухово – Горбуново",
    "name:en": "Kurgan – Makushino – Petukhovo – Gorbunovo",
    "operator": "АО «Свердловская пригородная компания»",
-   "service": "commuter"
+   "service": "regional"
   },
   "stops": [
    7918879633,

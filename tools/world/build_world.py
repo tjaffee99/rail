@@ -1621,6 +1621,8 @@ def fast_share(ways):
     tot = sum(l for l, t in L)
     return sum(l for l, t in L if fast_way(t)) / tot if tot else 0
 def km_of(stops): return sum(metres(*stations[a][2:4], *stations[b][2:4]) for a, b in zip(stops, stops[1:])) / 1000
+# the CIS legal category of every local train, whatever its length ("Пригородный электропоезд", "электричка", "Приміський")
+CATEGORY_SUB = re.compile(r'(?i)пригородн\w*|приміськ\w*|прыгарадн\w*|электричк\w*|электрацягнік\w*|\w*ППК\b')
 def train_kind(ts, main_t, ways, stops, ref):
     """route=train: 'h' for high-speed services (service / highspeed tags, HSR brands, or a long-distance product with
     most of its track at 250 km/h); never for regional or commuter products. 's' for S-Bahn / RER / commuter networks,
@@ -1630,6 +1632,14 @@ def train_kind(ts, main_t, ways, stops, ref):
     txt = ' '.join(t.get(k, '') for t in ts[:3] for k in ('network', 'network:en', 'name', 'name:en', 'operator', 'brand', 'ref'))
     sub = bool(SUBURBAN.search(txt)) or pas in ('suburban', 'urban') or bool(svc & {'commuter', 'suburban'}) or \
         bool(re.fullmatch(r'S ?[1-9]\d?[A-Z]?', ref)) and not re.match(r'TER', main_t.get('network', ''))
+    own = CATEGORY_SUB.sub('', ' '.join(t.get(k, '') for t in ts[:3] for k in ('network', 'network:en', 'name', 'name:en', 'brand', 'ref')))
+    if sub and svc & {'long_distance', 'international'} and not svc & {'commuter', 'suburban'}: return 'r'   # (Kuznetsky Express)
+    if sub and not (SUBURBAN.search(own) or pas in ('suburban', 'urban') or svc & {'commuter', 'suburban'} or
+                    re.fullmatch(r'S ?[1-9]\d?[A-Z]?', ref)):
+        # suburban only by its operator's name or the legal category in its name (Russia's "suburban passenger companies"
+        # run every elektrichka, "Пригородный электропоезд" 400 km ones too): commuter only when short and mostly in a big
+        # city's metropolitan area
+        return 's' if km_of(stops) <= 150 and sum(near_big(*stations[x][2:4]) for x in stops) >= 0.5 * len(stops) else 'r'
     night = 'night' in svc or bool(NIGHT.search(txt)) or any(t.get('sleeping') == 'yes' or t.get('by_night') in ('yes', 'only') for t in ts[:3])
     if HSR.search(' '.join(t.get(k, '') for t in ts[:3] for k in ('name', 'name:en', 'brand'))) and not night: return 'h'     # Haramain
     regional = sub or bool(REGIONAL.search(ref) or REGIONAL.search(txt)) or bool(svc & {'regional', 'local'}) or pas in ('regional', 'local')
@@ -1714,7 +1724,8 @@ for ids in votes.values():
     if len(ids) >= 3 and sum(cand[i]['kind'] == 's' for i in ids) >= 0.6 * len(ids):
         for i in ids:
             c = cand[i]
-            if c['kind'] == 'r' and km_of(c['stops']) <= 150 and not PRODUCT.match(c['ref']) and not any(EXPRESS_CS.search(t.get('ref') or '') for t in c['ts'][:2]):
+            if c['kind'] == 'r' and km_of(c['stops']) <= 150 and not PRODUCT.match(c['ref']) and not any(EXPRESS_CS.search(t.get('ref') or '') for t in c['ts'][:2]) \
+                    and 'regional' not in (c['main_t'].get('service') or ''):      # (not a route its mappers call regional)
                 c['kind'] = 's'
 log('outside China', len(cand), 'countries', len({c['cc'] for c in cand}))
 # operators in English and their logos (tools/world/english.py line_operator()): the first of the operator build chose,
