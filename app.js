@@ -1362,12 +1362,30 @@ async function boot() {
       clearSelection(); view.stack = [];
       return renderCity(dot.sort((a, b) => d(a) - d(b))[0].properties.ci, true, true);
     }
-    // stations whose dot is drawn (stn-rail keeps the others' dots transparent: see icon-opacity)
-    const z = map.getZoom(), minRk = z < 7 ? 10 : z < 8 ? 5 : 0;
-    const st = map.queryRenderedFeatures(hitBox(e.point, 7), { layers: layers(stnLayers) })
-      .filter(f => f.layer.id !== 'stn-rail' || sel != null || z >= 10 || f.properties.rep === 1 && f.properties.rk >= minRk);
+    // a station only when the click is on its drawn dot (else the line under it): stations whose dot is drawn (stn-rail
+    // keeps the others' dots transparent: see icon-opacity), within the dot's radius on screen, a few px more for a finger
+    const z = map.getZoom(), minRk = z < 6 ? 8 : z < 7 ? 5 : 0;
+    const lerp = (stops) => { if (z <= stops[0]) return stops[1]; for (let i = 2; i < stops.length; i += 2) if (z <= stops[i]) {
+      const t = (z - stops[i - 2]) / (stops[i] - stops[i - 2]); return stops[i - 1] + t * (stops[i + 1] - stops[i - 1]); } return stops[stops.length - 1]; };
+    const radius = f => {        // the dot's outer radius in CSS px, as the style draws it
+      const p = f.properties, me = p.i === selStation ? 1.3 : 1;
+      if (f.layer.id === 'sel-stn') return lerp([5, 2.5, 10, 4, 14, 6.5, 17, 8]) + lerp([5, 1.4, 12, 2.2, 17, 3]);
+      if (f.layer.id === 'stn-rail') {
+        const size = lerp([4, 0.6, 8, 0.85, 11, 0.8, 14, 1]) * me;
+        if (z >= 11 || p.i === selStation) return 10 * size;                                  // the train glyph
+        return size * ((p.rk >= 10 || p.x > 2) ? 6.2 : p.k === 'h' ? 4.9 : 4.3);              // hub / high-speed / other dot
+      }
+      const transfer = f.layer.id === 'stn-u';
+      return (transfer ? 8.5 : 7.1) * lerp(transfer ? [11, 0.42, 14, 0.85, 17, 1.3] : [11, 0.38, 14, 0.78, 17, 1.15]) * me;
+    };
+    const touch = e.originalEvent && (e.originalEvent.pointerType === 'touch' || (e.originalEvent.sourceCapabilities || {}).firesTouchEvents);
+    const slack = touch ? 6 : 1.5;
+    const dist = f => { const q = map.project(f.geometry.coordinates); return Math.hypot(q.x - e.point.x, q.y - e.point.y); };
+    const st = map.queryRenderedFeatures(hitBox(e.point, 16), { layers: layers(stnLayers) })
+      .filter(f => f.layer.id !== 'stn-rail' || sel != null || z >= 9 || f.properties.rep === 1 && f.properties.rk >= minRk)
+      .filter(f => dist(f) <= radius(f) + slack);
     if (st.length) {
-      st.sort((a, b) => (b.properties.x || 0) - (a.properties.x || 0));
+      st.sort((a, b) => dist(a) - dist(b) || (b.properties.x || 0) - (a.properties.x || 0));
       return showStation(st[0].properties.i, { fly: false });
     }
     const fs = map.queryRenderedFeatures(hitBox(e.point, 6), { layers: layers(railLayers) });
