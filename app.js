@@ -351,35 +351,35 @@ function buildStyle() {
       'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 16, 13.5], 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 0.85, 'text-justify': 'auto',
       'text-max-width': 10, 'text-line-height': 1.2, 'symbol-sort-key': ['-', 0, ['get', 'x']] },
     paint: { 'text-color': P.label, 'text-halo-color': P.halo, 'text-halo-width': 1.6, 'text-opacity': sel == null ? 1 : 0.3 } });
-  L.push(uLabel('stn-u1-label', 13.5, ['<=', ['get', 'x'], 1]));
-  L.push(uLabel('stn-u-label', 12, ['>', ['get', 'x'], 1]));
+  L.push(uLabel('stn-u1-label', 12.5, ['<=', ['get', 'x'], 1]));
+  L.push(uLabel('stn-u-label', 11, ['>', ['get', 'x'], 1]));
   // metro station dots as icons (not circles) so that route badges and metro labels avoid them
   const uDot = (id, minzoom, extra, transfer) => ({ id, type: 'symbol', source: 'rail', 'source-layer': 'stn', minzoom, filter: ['all', ud, extra],
     layout: { 'icon-image': transfer ? 'hubm|' + th : ['concat', 'sd|' + th + '|', ['coalesce', ['get', 'c'], '#888888']],
       'icon-size': ['interpolate', ['linear'], ['zoom'], 11, grow(transfer ? 0.42 : 0.38), 14, grow(transfer ? 0.85 : 0.78), 17, grow(transfer ? 1.3 : 1.15)],
       'icon-allow-overlap': true, 'icon-padding': 0, 'symbol-sort-key': ['-', 0, ['get', 'x']] },
     paint: { 'icon-opacity': sel == null ? 1 : 0.3 } });
-  L.push(uDot('stn-u1', 12, ['<=', ['get', 'x'], 1], false));
-  L.push(uDot('stn-u', 11, ['>', ['get', 'x'], 1], true));
+  L.push(uDot('stn-u1', 10.5, ['<=', ['get', 'x'], 1], false));
+  L.push(uDot('stn-u', 10, ['>', ['get', 'x'], 1], true));
   // town and city names up to z12 (before metro stations are named) go before the metro dots, which would hide them
   L.push(towns('place-t-lz', 9, 12), cities('place-c-lz', 3, 12));
-  // rail station names by rank: 11+ below z5, 10+ to z7, 8+ to z9, 5+ to z11, then all
+  // rail station names by rank: 11+ below z4, 10+ to z6, 8+ to z8, 5+ to z10, then all
   const railLabel = (min, f) => ['case', min == null ? only : ['all', only, ['>=', rk, min]], f, ''];
   L.push({ id: 'stn-rail', type: 'symbol', source: 'rail', 'source-layer': 'stn', filter: ['all', ['in', ['get', 'k'], ['literal', ['h', 'r', 's']]], servedBy('ks', sk)],
     layout: { 'icon-image': ['step', ['zoom'], ['case', one, glyph, hub, 'hub', ['match', ['get', 'k'], 'h', 'dot-h', 'r', 'dot-r', ['concat', 'ds|', th, '|', ['coalesce', ['get', 'c'], '']]]],
         11, logoReady.cr ? ['case', ['all', ['!=', ['get', 'k'], 's'], inChina()], 'lg|cr', glyph] : glyph],
       'icon-size': ['interpolate', ['linear'], ['zoom'], 4, grow(0.6), 8, grow(0.85), 11, grow(0.8), 14, grow(1)], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
       'symbol-sort-key': ['-', 0, rk],
-      'text-field': sel != null ? '' : ['step', ['zoom'], railLabel(11, nameField()), 5, railLabel(10, nameField()), 7, railLabel(8, nameField()), 9, railLabel(5, nameField()),
-        11, railLabel(null, nameField()), 14.5, railLabel(null, nameWithBullets())],
+      'text-field': sel != null ? '' : ['step', ['zoom'], railLabel(11, nameField()), 4, railLabel(10, nameField()), 6, railLabel(8, nameField()), 8, railLabel(5, nameField()),
+        10, railLabel(null, nameField()), 14.5, railLabel(null, nameWithBullets())],
       'text-font': ['case', hub, ['literal', ['NotoSansMedium']], ['literal', ['NotoSansRegular']]],
       'text-size': ['interpolate', ['linear'], ['zoom'], 5, ['case', hub, 12, 10.5], 10, ['case', hub, 14, 12], 16, ['case', hub, 16, 13.5]],
       'text-justify': 'auto', 'text-optional': true, 'text-max-width': 12, 'text-line-height': 1.15,
       'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': ['step', ['zoom'], 0.7, 11, 1.05] },
     paint: { 'text-color': ['case', hub, P.label, P.label2], 'text-halo-color': P.halo, 'text-halo-width': 1.8,
-      // one dot per complex below z10; below z7 only for the ranks that are labelled
-      'icon-opacity': sel != null ? 0.35 : ['step', ['zoom'], ['case', ['any', one, ['all', rep1, ['>=', rk, 10]]], 1, 0], 7, ['case', ['any', one, ['all', rep1, ['>=', rk, 5]]], 1, 0],
-        8, ['case', ['any', one, rep1], 1, 0], 10, 1] } });
+      // one dot per complex below z9; below z7 only for the higher ranks
+      'icon-opacity': sel != null ? 0.35 : ['step', ['zoom'], ['case', ['any', one, ['all', rep1, ['>=', rk, 8]]], 1, 0], 6, ['case', ['any', one, ['all', rep1, ['>=', rk, 5]]], 1, 0],
+        7, ['case', ['any', one, rep1], 1, 0], 9, 1] } });
   // selected line stations (always labelled): white dots, ringed in an urban line's own colour, else dark
   const sl = sel != null && D.lines[sel], ringCol = sl && !'hr'.includes(sl[0]) && sl[4] ? sl[4] : P.stnStroke;
   L.push({ id: 'sel-stn', type: 'circle', source: 'rail', 'source-layer': 'stn', filter: selF,

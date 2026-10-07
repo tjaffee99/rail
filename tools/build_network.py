@@ -274,7 +274,9 @@ def sections(ways, stops):
 # ---------------------------------------------------------------- lines
 lines, geometry = [], []      # geometry[i] = list of way ids
 
-def route_ways(r): return [ref for typ, ref, role in r['members'] if typ == 'w' and ref in WAYS and role in ('', 'forward', 'backward', 'main')]
+def route_ways(r):      # any track role but platforms / stops / unused track (Xi'an's lines give theirs as "route")
+    return [ref for typ, ref, role in r['members'] if typ == 'w' and ref in WAYS and
+            not re.search(r'platform|stop|station|inactive|abandoned|historic|disused|construction', role)]
 def route_stops(r):
     out = []
     for typ, ref, role in r['members']:

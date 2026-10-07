@@ -720,8 +720,8 @@ for i, s in enumerate(S):
     props = {'i': i, 'k': k, 'n': n, 'z': s[0], 'b': s[0] if s[0] != n and not latin(s[0]) else '', 'x': len(inter | urb), 'c': col, 'rk': rk,
              'ls': '|' + '|'.join(str(x) for x in sorted(vis)) + '|', 'ks': ''.join(sorted(ks)),
              'kc': ''.join(sorted({L[x][0] for x in allv})), 'cx': rep, 'rep': int(rep == i)}
-    mz = ((11 if props['x'] <= 1 else 10) if k not in RAILK else 10 if rep != i else 0 if i in MAIN and rk >= 13 else
-          2 if i in MAIN and rk >= 12 else 3 if rk >= 11 else 6 if rk >= 10 else 7 if rk >= 8 else 8 if rk >= 5 else 10)
+    mz = ((10 if props['x'] <= 1 else 9) if k not in RAILK else 9 if rep != i else 0 if i in MAIN and rk >= 13 else
+          2 if i in MAIN and rk >= 12 else 3 if rk >= 11 else 5 if rk >= 10 else 6 if rk >= 8 else 7 if rk >= 5 else 9)
     stn_feats.append((s[2], s[3], props, mz))
 SP = [p for _, _, p, _ in stn_feats]
 SX, SY = merc(np.array([f[0] for f in stn_feats], np.float64), np.array([f[1] for f in stn_feats], np.float64))
