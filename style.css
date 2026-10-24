@@ -33,7 +33,15 @@ body{margin:0;background:var(--land);color:var(--ink);font:14px/1.35 -apple-syst
 /* ---------- panel ---------- */
 #panel{position:absolute;left:16px;top:calc(16px + env(safe-area-inset-top,0px));width:340px;max-width:calc(100% - 32px);max-height:calc(100% - 32px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;background:var(--panel);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);border:1px solid var(--panel-edge);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;z-index:5}
 .grip{display:none}
-.phide{display:none}
+/* hide / show the panel (a full-screen map): wide layouts hide it whole and show a round button to bring it back */
+.phide{display:flex;position:absolute;top:13px;right:8px;width:30px;height:30px;align-items:center;justify-content:center;border:0;border-radius:8px;background:none;color:var(--ink3);cursor:pointer;padding:0;z-index:1}
+.phide:hover{background:var(--chip,rgba(127,127,127,.12))}
+.phide svg{width:18px;height:18px;transform:rotate(90deg)}
+#panel:not(.hid) .search{margin-right:34px}
+#panel.hid{display:none}
+.pshow{display:none;position:absolute;left:16px;top:calc(16px + env(safe-area-inset-top,0px));width:40px;height:40px;border-radius:12px;border:1px solid var(--panel-edge);background:var(--panel);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);box-shadow:var(--shadow);color:var(--ink);cursor:pointer;z-index:5;align-items:center;justify-content:center;padding:0}
+.pshow svg{width:18px;height:18px}
+#panel.hid~.pshow{display:flex}
 .phead{padding:12px 12px 8px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid transparent}
 .phead.scrolled{border-bottom-color:var(--sep)}
 .search{position:relative;display:flex;align-items:center}
@@ -153,8 +161,11 @@ details.fold[open]{background:var(--hover)}
   #panel.hid .phead,#panel.hid #body,#panel.hid .phide{display:none}
   #panel.hid .grip{height:30px}
   #panel.hid .grip::before{margin-top:12px}
-  .phide{display:flex;position:absolute;top:2px;right:8px;width:30px;height:24px;align-items:center;justify-content:center;border:0;background:none;color:var(--ink3);cursor:pointer;padding:0;z-index:1}
-  .phide svg{width:18px;height:18px}
+  .phide{top:2px;width:30px;height:24px}
+  .phide svg{transform:none}
+  #panel:not(.hid) .search{margin-right:0}
+  #panel.hid{display:flex}
+  #panel.hid~.pshow{display:none}
   .grip{display:block;width:100%;height:18px;border:0;background:none;cursor:pointer;padding:0;flex:none}
   .grip::before{content:"";display:block;margin:7px auto 0;width:38px;height:5px;border-radius:3px;background:var(--ink3);opacity:.5}
   .phead{padding-top:2px}

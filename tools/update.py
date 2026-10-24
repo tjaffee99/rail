@@ -78,6 +78,15 @@ SITE = os.path.join(OUT, 'site')
 os.makedirs(SITE)
 for f in ('index.html', 'app.js', 'style.css', 'favicon.svg', 'CNAME', 'README.md'):
     if os.path.exists(os.path.join(ROOT, f)): shutil.copy2(os.path.join(ROOT, f), SITE)
+# app.js / style.css by content hash, so a browser never pairs a new page with a cached old script or style
+import hashlib
+_ix = os.path.join(SITE, 'index.html')
+if os.path.exists(_ix):
+    h = open(_ix).read()
+    for f in ('app.js', 'style.css'):
+        v = hashlib.sha1(open(os.path.join(SITE, f), 'rb').read()).hexdigest()[:10]
+        h = h.replace(f'"{f}"', f'"{f}?v={v}"')
+    open(_ix, 'w').write(h)
 open(os.path.join(SITE, '.nojekyll'), 'w').close()
 shutil.copytree(os.path.join(ROOT, 'vendor'), os.path.join(SITE, 'vendor'))
 shutil.copytree(os.path.join(OUT, 'data'), os.path.join(SITE, 'data'), copy_function=os.link)

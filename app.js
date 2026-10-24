@@ -794,7 +794,7 @@ function operatorsHTML(ids) {
 const body = $('#body');
 function setBody(html, expand) {
   const pn = $('#panel');
-  if (pn.classList.contains('hid')) { pn.classList.remove('hid'); pn.classList.add('min'); }   // new content: show the sheet again (mobile)
+  if (pn.classList.contains('hid')) { pn.classList.remove('hid'); if (innerWidth <= 640) pn.classList.add('min'); }   // new content: show the panel again
   if (expand) pn.classList.remove('min');
   body.innerHTML = html; body.scrollTop = 0; $('#phead').classList.remove('scrolled');
 }
@@ -1164,7 +1164,7 @@ function padding() {
   const mobile = innerWidth <= 640;
   if (mobile) { const c = $('#panel').classList;
     return { top: 60, bottom: c.contains('hid') ? 50 : c.contains('min') ? 150 : Math.round(innerHeight * 0.52) + 20, left: 30, right: 30 }; }
-  return { top: 60, bottom: 60, left: Math.min(380, innerWidth * 0.45), right: 70 };
+  return { top: 60, bottom: 60, left: $('#panel').classList.contains('hid') ? 70 : Math.min(380, innerWidth * 0.45), right: 70 };
 }
 async function selectLine(id, { fit = true } = {}) {
   const t = ++nav;
@@ -1302,6 +1302,7 @@ const sheet = (st) => { const pn = $('#panel'); pn.classList.toggle('min', st ==
 const sheetState = () => { const c = $('#panel').classList; return c.contains('hid') ? 'hid' : c.contains('min') ? 'min' : 'full'; };
 $('#grip').addEventListener('click', () => sheet(sheetState() === 'full' ? 'min' : sheetState() === 'hid' ? 'min' : 'full'));
 $('#phide').addEventListener('click', () => sheet('hid'));
+$('#pshow').addEventListener('click', () => sheet(innerWidth <= 640 ? 'min' : 'full'));
 {
   let y0 = null;
   const head = [$('#grip'), $('#phead')];
