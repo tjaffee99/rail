@@ -301,6 +301,12 @@ def main():
         if os.path.exists(sources):
             rels = dict(enumerate(json.load(open(sources))))
             overrides(parts[-1][1][0], parts[-1][1][1], parts[-1][2], 'match', {r: [i] for i, rs in rels.items() for r in rs})
+            # a line OSM gives no colour: its Wikidata item's (P465, ref/wd_colours.json by relation id), e.g. RE4 Wupper-Express
+            wdc = os.path.join(os.path.dirname(__file__), 'ref', 'wd_colours.json')
+            wdc = json.load(open(wdc)) if os.path.exists(wdc) else {}
+            for i, rs in rels.items():
+                l = parts[-1][1][0][i]
+                if not l[4]: l[4] = next((wdc[str(r)] for r in rs if str(r) in wdc), '')
     # ---- concatenate with provisional ids
     lines, stations, cities, geometry, ways, lrels = [], [], [], [], {}, []
     for name, (L, S, C), G in parts:

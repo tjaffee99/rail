@@ -33,6 +33,7 @@ body{margin:0;background:var(--land);color:var(--ink);font:14px/1.35 -apple-syst
 /* ---------- panel ---------- */
 #panel{position:absolute;left:16px;top:calc(16px + env(safe-area-inset-top,0px));width:340px;max-width:calc(100% - 32px);max-height:calc(100% - 32px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;background:var(--panel);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);border:1px solid var(--panel-edge);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;z-index:5}
 .grip{display:none}
+.phide{display:none}
 .phead{padding:12px 12px 8px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid transparent}
 .phead.scrolled{border-bottom-color:var(--sep)}
 .search{position:relative;display:flex;align-items:center}
@@ -85,6 +86,7 @@ details.fold[open]{background:var(--hover)}
 .legend{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;padding:4px 16px 8px;font-size:12.5px;color:var(--ink2)}
 .legend i{display:block;width:34px;height:4px;border-radius:2px}
 .legend i.track{background:var(--track);height:2px}
+.keynote{padding:0 16px 10px;font-size:12px;line-height:1.4;color:var(--ink3)}
 .stats{display:flex;justify-content:space-between;gap:10px;padding:2px 16px 6px}
 .stats div{display:flex;flex-direction:column;min-width:0;white-space:nowrap}
 .stats b{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
@@ -147,6 +149,12 @@ details.fold[open]{background:var(--hover)}
   #panel{left:0;right:0;top:auto;bottom:0;width:auto;max-width:none;border-radius:16px 16px 0 0;max-height:52%;padding-bottom:env(safe-area-inset-bottom,0px);border-left:0;border-right:0;border-bottom:0}
   #panel.min{max-height:128px}
   #panel.min #body{overflow:hidden}
+  #panel.hid{max-height:calc(30px + env(safe-area-inset-bottom,0px));transition:max-height .18s ease}
+  #panel.hid .phead,#panel.hid #body,#panel.hid .phide{display:none}
+  #panel.hid .grip{height:30px}
+  #panel.hid .grip::before{margin-top:12px}
+  .phide{display:flex;position:absolute;top:2px;right:8px;width:30px;height:24px;align-items:center;justify-content:center;border:0;background:none;color:var(--ink3);cursor:pointer;padding:0;z-index:1}
+  .phide svg{width:18px;height:18px}
   .grip{display:block;width:100%;height:18px;border:0;background:none;cursor:pointer;padding:0;flex:none}
   .grip::before{content:"";display:block;margin:7px auto 0;width:38px;height:5px;border-radius:3px;background:var(--ink3);opacity:.5}
   .phead{padding-top:2px}

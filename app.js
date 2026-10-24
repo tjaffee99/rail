@@ -248,9 +248,9 @@ function buildStyle() {
   L.push({ id: 'rail-h-case', type: 'line', source: 'rail', 'source-layer': 'rail', minzoom: 6, filter: alone('h'), layout: { visibility: on('h'), 'line-join': 'round' },
     paint: { 'line-color': P.casing, 'line-opacity': dim, 'line-width': W([[6, 3], [9, 4.6], [12, 6.2], [15, 8.4], [18, 11.5]]) } });
   L.push({ id: 'rail-r', type: 'line', source: 'rail', 'source-layer': 'rail', filter: ['==', ['get', 'k'], 'r'], layout: { visibility: on('r'), 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': P.rail, 'line-opacity': dim, 'line-width': W(RW), 'line-offset': half(RW, -1) } });
+    paint: { 'line-color': ['coalesce', ['get', 'c'], P.rail], 'line-opacity': dim, 'line-width': W(RW), 'line-offset': half(RW, -1) } });
   L.push({ id: 'rail-h', type: 'line', source: 'rail', 'source-layer': 'rail', filter: ['==', ['get', 'k'], 'h'], layout: { visibility: on('h'), 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': P.hsr, 'line-opacity': dim, 'line-width': W(HW), 'line-offset': half(HW, 1) } });
+    paint: { 'line-color': ['coalesce', ['get', 'c'], P.hsr], 'line-opacity': dim, 'line-width': W(HW), 'line-offset': half(HW, 1) } });
   // urban rail
   const ucase = { type: 'line', source: 'rail', 'source-layer': 'rail', minzoom: 10, layout: { 'line-join': 'round', 'line-cap': 'round' } };
   // (only for the kinds shown: a hidden suburban line's casing would hide the intercity line on its track)
@@ -793,7 +793,9 @@ function operatorsHTML(ids) {
 // ---------------------------------------------------------------- panel rendering
 const body = $('#body');
 function setBody(html, expand) {
-  if (expand) $('#panel').classList.remove('min');
+  const pn = $('#panel');
+  if (pn.classList.contains('hid')) { pn.classList.remove('hid'); pn.classList.add('min'); }   // new content: show the sheet again (mobile)
+  if (expand) pn.classList.remove('min');
   body.innerHTML = html; body.scrollTop = 0; $('#phead').classList.remove('scrolled');
 }
 body.addEventListener('scroll', () => $('#phead').classList.toggle('scrolled', body.scrollTop > 2));
@@ -829,7 +831,8 @@ function renderHome() {
     <i style="background:var(--hsr);height:5px"></i><span>High-speed railway</span>
     <i style="background:var(--rail)"></i><span>Conventional railway</span>
     <i style="background:linear-gradient(90deg,#00985F 0 50%,#E2231A 50%)"></i><span>Suburban and commuter rail</span>
-    <i style="background:linear-gradient(90deg,#E4002B 0 25%,#0057B8 25% 50%,#009A44 50% 75%,#F2A900 75%)"></i><span>Metro, light rail and tram, in official line colours</span></div>`;
+    <i style="background:linear-gradient(90deg,#E4002B 0 25%,#0057B8 25% 50%,#009A44 50% 75%,#F2A900 75%)"></i><span>Metro, light rail and tram</span></div>
+    <div class="keynote">Every line is drawn in its own colour where one is known; these are the colours of those without one. High-speed lines are the widest.</div>`;
   h += `<div class="sec">Countries · ${cs.length}</div>`;
   for (const [k] of cs) h += countryRow(k);
   h += `<div class="note">Data from OpenStreetMap contributors, extracted ${esc(fmtDate(IX.date))}. Lines appear as mapped there; recently opened or reorganised services may differ from timetables.</div>`;
@@ -1159,7 +1162,8 @@ function lineBounds(id) {
 }
 function padding() {
   const mobile = innerWidth <= 640;
-  if (mobile) return { top: 60, bottom: $('#panel').classList.contains('min') ? 150 : Math.round(innerHeight * 0.52) + 20, left: 30, right: 30 };
+  if (mobile) { const c = $('#panel').classList;
+    return { top: 60, bottom: c.contains('hid') ? 50 : c.contains('min') ? 150 : Math.round(innerHeight * 0.52) + 20, left: 30, right: 30 }; }
   return { top: 60, bottom: 60, left: Math.min(380, innerWidth * 0.45), right: 70 };
 }
 async function selectLine(id, { fit = true } = {}) {
@@ -1291,7 +1295,27 @@ $('#q').addEventListener('input', e => {
 });
 $('#q').addEventListener('keydown', e => { if (e.key === 'Enter') { const f = body.querySelector('.row'); if (f) f.click(); } if (e.key === 'Escape') { e.target.value = ''; $('#qclear').classList.remove('show'); renderHome(); } });
 $('#qclear').addEventListener('click', () => { $('#q').value = ''; $('#qclear').classList.remove('show'); renderHome(); $('#q').focus(); });
-$('#grip').addEventListener('click', () => $('#panel').classList.toggle('min'));
+// the mobile sheet: full (52%), min (search and chips) or hidden (a handle only, the map full screen). The grip toggles
+// full / min and shows a hidden sheet; the chevron hides it; a swipe on the sheet's head steps it down or up.
+const sheet = (st) => { const pn = $('#panel'); pn.classList.toggle('min', st === 'min'); pn.classList.toggle('hid', st === 'hid');
+  $('#phide').setAttribute('aria-expanded', String(st !== 'hid')); };
+const sheetState = () => { const c = $('#panel').classList; return c.contains('hid') ? 'hid' : c.contains('min') ? 'min' : 'full'; };
+$('#grip').addEventListener('click', () => sheet(sheetState() === 'full' ? 'min' : sheetState() === 'hid' ? 'min' : 'full'));
+$('#phide').addEventListener('click', () => sheet('hid'));
+{
+  let y0 = null;
+  const head = [$('#grip'), $('#phead')];
+  for (const el of head) {
+    el.addEventListener('touchstart', e => { y0 = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
+    el.addEventListener('touchend', e => {
+      if (y0 == null || !e.changedTouches.length) return;
+      const dy = e.changedTouches[0].clientY - y0; y0 = null;
+      if (Math.abs(dy) < 40) return;
+      const st = sheetState();
+      if (dy > 0) sheet(st === 'full' ? 'min' : 'hid'); else sheet(st === 'hid' ? 'min' : 'full');
+    }, { passive: true });
+  }
+}
 $('#zin').addEventListener('click', () => map.zoomIn());
 $('#zout').addEventListener('click', () => map.zoomOut());
 $('#compass').addEventListener('click', () => map.easeTo({ bearing: 0, pitch: 0 }));

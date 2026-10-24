@@ -507,6 +507,9 @@ def props(ls, wk):
     if k not in 'hr':
         p['c'] = L[prim][4] or URBAN_COLOUR[k]
         if badge(prim): p['r'] = badge(prim)
+    else:          # intercity in its line's own colour where one is known (else the site's kind colour): the drawn line's,
+        cols = Counter(L[i][4].upper() for i in ls if L[i][0] == k and L[i][4])        # else the commonest on the stretch
+        if L[prim][4] or cols: p['c'] = L[prim][4] or cols.most_common(1)[0][0]
     return p
 keys = list(groups)
 GP = [[props(keys[j][0], keys[j][1])] if keys[j][1] != 'hr' else
