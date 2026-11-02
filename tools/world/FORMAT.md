@@ -74,6 +74,10 @@ in one more shard per country, named `<iso><n>.json` after the country's others 
 to the shard table. `nLines` / `nStations` count tombstones too; `stats` do not. Without `--prev` (or to start over)
 ids are positional, by country then build order, as before.
 
+**Withdrawing a line without a rebuild** (`tools/withdraw.py <line id> ...`, on the deployed tree): tombstones the lines and
+their own stations in the shards, updates the search index, stats and counts, and rewrites only the tile chunks around them
+(one new `rail_<n>.bin`, manifest updated). Add the same lines' relations to `drops.json` so the next build agrees.
+
 **Incremental update** (`tools/update.py PREV OUT`, one-line fixes in about a minute):
 
 ```
